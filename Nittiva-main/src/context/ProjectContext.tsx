@@ -73,8 +73,6 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-
-  console.log("ACCES TOKEN", accessToken);
   // Select without mutating the list
   const selectProject = (projectOrId: string | Project) => {
     const id = typeof projectOrId === "string" ? projectOrId : projectOrId.id;

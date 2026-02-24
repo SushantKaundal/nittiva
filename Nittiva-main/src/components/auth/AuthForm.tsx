@@ -20,6 +20,7 @@ import { SocialLoginButtons } from "@/components/auth/SocialLoginButtons";
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email"),
   password: z.string().min(1, "Password is required"),
+  company_id: z.string().min(3, "Company ID is required (3-20 characters)").max(20, "Company ID must be 20 characters or less"),
 });
 
 const registerSchema = z
@@ -34,6 +35,7 @@ const registerSchema = z
     password: z.string().min(6, "Password must be at least 6 characters"),
     password_confirmation: z.string(),
     company: z.string().optional(),
+    company_id: z.string().min(3, "Company ID is required (3-20 characters)").max(20, "Company ID must be 20 characters or less"),
     type: z.string().default("member"),
   })
   .refine((data) => data.password === data.password_confirmation, {
@@ -180,6 +182,33 @@ export function AuthForm({
                 </div>
               </>
             )}
+
+            {/* Company ID field (required for both login and register) */}
+            <div className="space-y-2">
+              <Label htmlFor="company_id" className="text-white">
+                Company ID <span className="text-red-400">*</span>
+              </Label>
+              <Input
+                id="company_id"
+                type="text"
+                placeholder="Enter your company ID (e.g., ACME123)"
+                className="bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:border-blue-400 uppercase"
+                {...register("company_id" as any)}
+                style={{ textTransform: "uppercase" }}
+                onChange={(e) => {
+                  e.target.value = e.target.value.toUpperCase();
+                  register("company_id" as any).onChange(e);
+                }}
+              />
+              <p className="text-xs text-gray-400">
+                Contact your administrator to get your company ID
+              </p>
+              {"company_id" in errors && (
+                <p className="text-red-400 text-sm">
+                  {(errors as any).company_id?.message}
+                </p>
+              )}
+            </div>
 
             {/* Email field (used for both login and register) */}
             <div className="space-y-2">

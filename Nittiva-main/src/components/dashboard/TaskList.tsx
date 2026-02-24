@@ -73,101 +73,79 @@ const defaultColumns: Column[] = [
   {
     id: "name",
     label: "Task name",
-    width: 300,
-    minWidth: 200,
-    maxWidth: 500,
+    width: 350,
+    minWidth: 250,
+    maxWidth: 600,
     sortable: false,
     resizable: true,
   },
   {
     id: "assignee",
     label: "Assignee",
-    width: 160,
-    minWidth: 120,
-    maxWidth: 300,
+    width: 200,
+    minWidth: 150,
+    maxWidth: 350,
     sortable: true,
     resizable: true,
   },
   {
     id: "dueDate",
     label: "Due date",
-    width: 120,
-    minWidth: 100,
-    maxWidth: 200,
+    width: 150,
+    minWidth: 120,
+    maxWidth: 250,
     sortable: true,
     resizable: true,
   },
   {
     id: "priority",
     label: "Priority",
-    width: 100,
-    minWidth: 80,
-    maxWidth: 150,
+    width: 130,
+    minWidth: 100,
+    maxWidth: 200,
     sortable: true,
     resizable: true,
   },
   {
     id: "status",
     label: "Status",
-    width: 120,
-    minWidth: 100,
-    maxWidth: 180,
+    width: 150,
+    minWidth: 120,
+    maxWidth: 220,
     sortable: true,
     resizable: true,
   },
   {
     id: "timeTracked",
     label: "Time tracked",
-    width: 150,
-    minWidth: 120,
-    maxWidth: 200,
+    width: 180,
+    minWidth: 150,
+    maxWidth: 250,
     sortable: true,
     resizable: true,
   },
   {
     id: "progress",
     label: "Progress",
-    width: 150,
-    minWidth: 100,
-    maxWidth: 250,
+    width: 180,
+    minWidth: 150,
+    maxWidth: 300,
     sortable: true,
     resizable: true,
   },
-  // Sample custom fields
-  {
-    id: "status-field",
-    label: "Status",
-    width: 120,
-    minWidth: 100,
-    maxWidth: 200,
-    sortable: true,
-    isCustom: true,
-    fieldType: "dropdown",
-    resizable: true,
-  },
+  // Custom fields (removed duplicate status-field and rating-field)
   {
     id: "budget-field",
     label: "Budget",
-    width: 100,
-    minWidth: 80,
-    maxWidth: 150,
+    width: 130,
+    minWidth: 100,
+    maxWidth: 200,
     sortable: true,
     isCustom: true,
     fieldType: "money",
     resizable: true,
   },
-  {
-    id: "rating-field",
-    label: "Priority Rating",
-    width: 140,
-    minWidth: 120,
-    maxWidth: 200,
-    sortable: true,
-    isCustom: true,
-    fieldType: "rating",
-    resizable: true,
-  },
-  { id: "actions", label: "", width: 80, sortable: false, resizable: false },
+  { id: "actions", label: "", width: 100, sortable: false, resizable: false },
 ];
 
 export function TaskList() {
@@ -639,10 +617,39 @@ console.log(dbUsers,"DB");
                 <div
                   className="flex"
                   style={{
-                    minWidth: `${columns.reduce((sum, col) => sum + col.width, 0)}px`,
+                    minWidth: `${columns.reduce((sum, col) => sum + col.width, 0) + (editingTask === task.id ? 100 : 0)}px`,
                   }}
                 >
+                  {/* Save/Cancel buttons at the start when editing */}
+                  {editingTask === task.id && (
+                    <div className="flex items-center gap-1 px-2 border-r border-dashboard-border py-3 flex-shrink-0" style={{ width: 100 }}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-accent hover:text-accent"
+                        onClick={saveEditing}
+                        title="Save"
+                      >
+                        <Check className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-red-400 hover:text-red-300"
+                        onClick={cancelEditing}
+                        title="Cancel"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
+                  
                   {columns.map((column) => {
+                    // Skip actions column if we're editing (we show save/cancel at start)
+                    if (column.id === "actions" && editingTask === task.id) {
+                      return null;
+                    }
+                    
                     return (
                       <div
                         key={column.id}
@@ -1129,26 +1136,7 @@ console.log(dbUsers,"DB");
 
                         {column.id === "actions" && (
                           <div className="px-4 flex items-center justify-end gap-1 w-full">
-                            {editingTask === task.id ? (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 w-7 p-0 text-accent hover:text-accent"
-                                  onClick={saveEditing}
-                                >
-                                  <Check className="w-3 h-3" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 w-7 p-0 text-red-400 hover:text-red-300"
-                                  onClick={cancelEditing}
-                                >
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </>
-                            ) : (
+                            {editingTask !== task.id && (
                               <Button
                                 variant="ghost"
                                 size="sm"

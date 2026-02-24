@@ -182,8 +182,6 @@ const refresh = useCallback(async (projectId?: string | number) => {
   const getTasksForProject = (projectId: string) =>
     tasks.filter((t) => String(t.projectId) === projectId);
 
-
-  console.log("TASKS GERE", tasks);
   return (
     <TaskContext.Provider
       value={{

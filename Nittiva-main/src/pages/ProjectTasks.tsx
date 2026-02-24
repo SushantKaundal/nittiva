@@ -1,16 +1,18 @@
-import React from "react";
+import React, { useState } from "react";
 import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Search, Bell, Globe, User, ArrowLeft } from "lucide-react";
+import { Search, Bell, Globe, User, ArrowLeft, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import TaskList from "@/components/dashboard/TaskList";
 import { useProject } from "@/context/ProjectContext";
 import { Link } from "react-router-dom";
+import { InviteUserDialog } from "@/components/project/InviteUserDialog";
 
 export default function ProjectTasks() {
   const { projectId } = useParams();
   const { projects, currentProject, selectProject } = useProject();
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
 
   // Find and set the current project if not already set
   const project = projects.find((p) => p.id === projectId);
@@ -117,9 +119,11 @@ export default function ProjectTasks() {
             <Button
               variant="outline"
               size="sm"
-              className="border-dashboard-border text-gray-400 hover:text-white"
+              className="border-dashboard-border text-gray-400 hover:text-white flex items-center gap-2"
+              onClick={() => setInviteDialogOpen(true)}
             >
-              Share
+              <UserPlus className="w-4 h-4" />
+              Invite
             </Button>
             <Button
               size="sm"
@@ -133,6 +137,19 @@ export default function ProjectTasks() {
         {/* Task List */}
         <TaskList />
       </div>
+
+      {/* Invite User Dialog */}
+      {project && (
+        <InviteUserDialog
+          isOpen={inviteDialogOpen}
+          onClose={() => setInviteDialogOpen(false)}
+          projectId={project.id}
+          projectName={project.name}
+          onInviteSent={() => {
+            // Refresh project data if needed
+          }}
+        />
+      )}
     </div>
   );
 }

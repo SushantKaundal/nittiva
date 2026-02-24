@@ -24,6 +24,9 @@ import {
   User,
   LogOut,
   Settings,
+  Shield,
+  Building2,
+  Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -43,6 +46,12 @@ import {
 
 const sidebarItems = [
   {
+    title: "ADMIN",
+    items: [
+      { name: "Create Tenant", icon: Building2, path: "/dashboard/admin/tenants" },
+    ],
+  },
+  {
     title: "DASHBOARD",
     items: [{ name: "Dashboard", icon: LayoutDashboard, path: "/dashboard" }],
   },
@@ -50,6 +59,8 @@ const sidebarItems = [
     title: "PROJECT MANAGEMENT",
     items: [
       { name: "Tasks", icon: CheckSquare, path: "/dashboard/tasks" },
+      { name: "Timeline", icon: Calendar, path: "/dashboard/timeline" },
+      { name: "Sprint", icon: Target, path: "/dashboard/sprint" },
       { name: "Statuses", icon: Tag, path: "/dashboard/statuses" },
       { name: "Priorities", icon: Star, path: "/dashboard/priorities" },
     ],
@@ -197,8 +208,6 @@ useEffect(() => {
 
   const isActive = (path: string) => location.pathname === path;
 
-
-  console.log("VISSIBLE PROJECTS", visibleProjects);
   return (
     <motion.div
       initial={{ x: -250 }}
@@ -250,8 +259,44 @@ useEffect(() => {
 
       {/* Navigation */}
       <div className="flex-1 overflow-y-auto py-4">
+        {/* Admin section first (if user is admin/superuser) */}
+        {sidebarItems.filter(section => section.title === "ADMIN").map((section, idx) => {
+          const userRole = (user as any)?.role || (me as any)?.role || "";
+          const isSuperUser = (user as any)?.is_superuser || (me as any)?.is_superuser || false;
+          const isAdmin = String(userRole).toLowerCase() === "admin" || isSuperUser;
+          if (!isAdmin) return null;
+          
+          return (
+            <div key={idx} className="mb-6">
+              {!isCollapsed && (
+                <div className="px-4 mb-2">
+                  <h3 className="text-xs font-normal text-gray-500 uppercase tracking-wider">
+                    {section.title}
+                  </h3>
+                </div>
+              )}
+              <div className="space-y-1 px-2">
+                {section.items.map((item) => (
+                  <Link
+                    key={item.name}
+                    to={item.path}
+                    className={cn(
+                      "sidebar-item group",
+                      isActive(item.path) && "active",
+                      isCollapsed && "justify-center px-2",
+                    )}
+                  >
+                    <item.icon className="w-5 h-5 flex-shrink-0" />
+                    {!isCollapsed && <span className="truncate">{item.name}</span>}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        
         {/* Dashboard section */}
-        {[sidebarItems[0]].map((section, idx) => (
+        {sidebarItems.filter(section => section.title === "DASHBOARD").map((section, idx) => (
           <div key={idx} className="mb-6">
             {!isCollapsed && (
               <div className="px-4 mb-2">
@@ -424,34 +469,36 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* Other sections */}
-        {sidebarItems.slice(1).map((section, idx) => (
-          <div key={idx + 1} className="mb-6">
-            {!isCollapsed && (
-              <div className="px-4 mb-2">
-                <h3 className="text-xs font-normal text-gray-500 uppercase tracking-wider">
-                  {section.title}
-                </h3>
+        {/* Other sections (skip ADMIN and DASHBOARD as they're shown separately) */}
+        {sidebarItems.filter(s => s.title !== "ADMIN" && s.title !== "DASHBOARD").map((section, idx) => {
+          return (
+            <div key={idx + 1} className="mb-6">
+              {!isCollapsed && (
+                <div className="px-4 mb-2">
+                  <h3 className="text-xs font-normal text-gray-500 uppercase tracking-wider">
+                    {section.title}
+                  </h3>
+                </div>
+              )}
+              <div className="space-y-1 px-2">
+                {section.items.map((item) => (
+                  <Link
+                    key={item.name}
+                    to={item.path}
+                    className={cn(
+                      "sidebar-item group",
+                      isActive(item.path) && "active",
+                      isCollapsed && "justify-center px-2",
+                    )}
+                  >
+                    <item.icon className="w-5 h-5 flex-shrink-0" />
+                    {!isCollapsed && <span className="truncate">{item.name}</span>}
+                  </Link>
+                ))}
               </div>
-            )}
-            <div className="space-y-1 px-2">
-              {section.items.map((item) => (
-                <Link
-                  key={item.name}
-                  to={item.path}
-                  className={cn(
-                    "sidebar-item group",
-                    isActive(item.path) && "active",
-                    isCollapsed && "justify-center px-2",
-                  )}
-                >
-                  <item.icon className="w-5 h-5 flex-shrink-0" />
-                  {!isCollapsed && <span className="truncate">{item.name}</span>}
-                </Link>
-              ))}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Footer */}
@@ -481,6 +528,11 @@ useEffect(() => {
                       <div className="text-xs text-gray-400 truncate">
                         {user.email}
                       </div>
+                      {(user as any).company_id && (user as any).role === "manager" && (
+                        <div className="text-xs text-accent mt-1 font-mono">
+                          ID: {(user as any).company_id}
+                        </div>
+                      )}
                     </div>
                   </button>
                 </DropdownMenuTrigger>
@@ -530,6 +582,11 @@ useEffect(() => {
                 <div className="px-2 py-1.5 text-xs text-muted-foreground mb-1">
                   {user.email}
                 </div>
+                {(user as any).company_id && (user as any).role === "manager" && (
+                  <div className="px-2 py-1.5 text-xs text-accent font-mono mb-1">
+                    Company ID: {(user as any).company_id}
+                  </div>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem>
                   <User className="w-4 h-4 mr-2" />

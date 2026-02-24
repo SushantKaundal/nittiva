@@ -15,6 +15,8 @@ import Register from "./pages/Register";
 import EmailVerification from "./pages/EmailVerification";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import AcceptInvitation from "./pages/AcceptInvitation";
+import AdminLogin from "./pages/admin/AdminLogin";
 
 // Protected Pages
 import Index from "./pages/Index";
@@ -33,6 +35,9 @@ import Invoice from "./pages/Invoice";
 import LeaveRequests from "./pages/LeaveRequests";
 import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
+import TenantManagement from "./pages/admin/TenantManagement";
+import Timeline from "./pages/Timeline";
+import Sprint from "./pages/Sprint";
 
 import "./App.css";
 
@@ -54,22 +59,26 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
-                <Route
-                  path="/login"
-                  element={
-                    <ProtectedRoute requireAuth={false}>
-                      <Login />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/register"
-                  element={
-                    <ProtectedRoute requireAuth={false}>
-                      <Register />
-                    </ProtectedRoute>
-                  }
-                />
+                        <Route
+                          path="/login"
+                          element={
+                            <ProtectedRoute requireAuth={false}>
+                              <Login />
+                            </ProtectedRoute>
+                          }
+                        />
+                        <Route
+                          path="/admin/login"
+                          element={<AdminLogin />}
+                        />
+                        <Route
+                          path="/register"
+                          element={
+                            <ProtectedRoute requireAuth={false}>
+                              <Register />
+                            </ProtectedRoute>
+                          }
+                        />
                 <Route
                   path="/email-verification"
                   element={
@@ -91,6 +100,14 @@ function App() {
                   element={
                     <ProtectedRoute requireAuth={false}>
                       <ResetPassword />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/accept-invitation"
+                  element={
+                    <ProtectedRoute requireAuth={false}>
+                      <AcceptInvitation />
                     </ProtectedRoute>
                   }
                 />
@@ -118,6 +135,8 @@ function App() {
                     path="priorities"
                     element={<div className="p-6 text-white">Priorities - Coming Soon</div>}
                   />
+                  <Route path="timeline" element={<Timeline />} />
+                  <Route path="sprint" element={<Sprint />} />
                   <Route
                     path="workspaces"
                     element={<div className="p-6 text-white">Workspaces - Coming Soon</div>}
@@ -131,6 +150,7 @@ function App() {
                   <Route path="notes" element={<Notes />} />
                   <Route path="leave-requests" element={<LeaveRequests />} />
                   <Route path="notifications" element={<Notifications />} />
+                  <Route path="admin/tenants" element={<TenantManagement />} />
                 </Route>
 
                 {/* Catch all */}

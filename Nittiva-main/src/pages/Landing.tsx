@@ -473,6 +473,15 @@ export default function Landing() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              <Link to="/admin/login" className="mr-2">
+                <Button
+                  variant="outline"
+                  className="bg-yellow-500/10 border-yellow-500/20 text-yellow-400 hover:bg-yellow-500/20"
+                >
+                  <Shield className="w-4 h-4 mr-2" />
+                  Admin Login
+                </Button>
+              </Link>
               <Link to="/login">
                 <Button
                   variant="ghost"

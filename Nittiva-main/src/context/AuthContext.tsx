@@ -115,20 +115,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (refresh) localStorage.setItem("refresh_token", refresh);
       setAccessToken(access);
 
-      // try to decode JWT for quick user
+      // Check if login response includes user data
       let nextUser: User | null = null;
-      try {
-        const payloadPart = access.split(".")[1];
-        const normalized = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-        const payload = JSON.parse(atob(normalized));
-        nextUser = {
-          id: payload.user_id,
-          email: payload.email,
-          name: payload.name,
-          role: payload.role,
-        };
-      } catch (e) {
-        // fallback to profile
+      if (data.user) {
+        // Use user data from login response (includes is_superuser)
+        nextUser = data.user as User;
+      } else {
+        // Try to decode JWT for quick user
+        try {
+          const payloadPart = access.split(".")[1];
+          const normalized = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+          const payload = JSON.parse(atob(normalized));
+          nextUser = {
+            id: payload.user_id,
+            email: payload.email,
+            name: payload.name,
+            role: payload.role,
+            is_superuser: payload.is_superuser || false,
+            is_staff: payload.is_staff || false,
+          } as any;
+        } catch (e) {
+          // fallback to profile
+        }
       }
 
       if (!nextUser) {
