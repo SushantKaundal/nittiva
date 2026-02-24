@@ -11,7 +11,14 @@ from django.db.models import UniqueConstraint
 
 
 class Task(models.Model):
-    """Task model for managing tasks within projects."""
+    """Task model for managing tasks within projects - supports multiple work item types."""
+
+    class WorkItemType(models.TextChoices):
+        EPIC = "epic", "Epic"
+        STORY = "story", "Story"
+        TASK = "task", "Task"
+        BUG = "bug", "Bug"
+        REQUEST = "request", "Request"
 
     class Status(models.TextChoices):
         TODO = "to-do", "To Do"
@@ -24,6 +31,27 @@ class Task(models.Model):
         MEDIUM = "medium", "Medium"
         HIGH = "high", "High"
 
+    # Multi-tenant: Each task belongs to a tenant
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True, help_text="Tenant this task belongs to")
+    
+    # Work item type
+    work_item_type = models.CharField(
+        max_length=20,
+        choices=WorkItemType.choices,
+        default=WorkItemType.TASK,
+        help_text="Type of work item (Epic, Story, Task, Bug, Request)"
+    )
+    
+    # Parent-child hierarchy
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="children",
+        help_text="Parent task (for subtasks)"
+    )
+    
     project = models.ForeignKey(
         "Project",
         on_delete=models.CASCADE,
@@ -38,6 +66,9 @@ class Task(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.TODO)
     priority = models.CharField(max_length=10, choices=Priority.choices, default=Priority.MEDIUM)
     due_date = models.DateField(blank=True, null=True)
+    
+    # Story points (for Epics/Stories)
+    story_points = models.PositiveIntegerField(null=True, blank=True, help_text="Story points for estimation")
 
     progress = models.PositiveSmallIntegerField(
         default=0,
@@ -66,17 +97,32 @@ class Task(models.Model):
     class Meta:
         db_table = "tasks"
         indexes = [
-            models.Index(fields=["project", "status"]),
-            models.Index(fields=["due_date"]),
+            models.Index(fields=["tenant_id", "project"]),
+            models.Index(fields=["tenant_id", "status"]),
+            models.Index(fields=["tenant_id", "work_item_type"]),
+            models.Index(fields=["tenant_id", "parent"]),
+            models.Index(fields=["tenant_id", "due_date"]),
         ]
 
     def __str__(self):
-        return f"[{self.project_id}] {self.title}"
+        return f"[{self.work_item_type.upper()}] {self.title}"
+    
+    def calculate_progress_from_children(self):
+        """Calculate progress from child tasks."""
+        children = self.children.filter(tenant_id=self.tenant_id)
+        if children.exists():
+            total_progress = sum(child.progress for child in children)
+            self.progress = total_progress // children.count()
+            self.save(update_fields=["progress"])
+        return self.progress
 
 
 class TaskAssignment(models.Model):
     """Task assignment model for managing task assignments to users."""
 
+    # Multi-tenant: Each task assignment belongs to a tenant
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True, help_text="Tenant this assignment belongs to")
+    
     task = models.ForeignKey(
         Task,
         on_delete=models.CASCADE,
@@ -91,6 +137,10 @@ class TaskAssignment(models.Model):
 
     class Meta:
         db_table = "task_assignments"
+        indexes = [
+            models.Index(fields=["tenant_id", "task"]),
+            models.Index(fields=["tenant_id", "user"]),
+        ]
         constraints = [
             UniqueConstraint(fields=["task", "user"], name="uniq_task_user"),
         ]

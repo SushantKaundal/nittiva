@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from ..models import Project, Task, ProjectMember
 from django.contrib.auth import get_user_model
 from ..utils.responses import success_response, error_response
+from ..utils.tenant import get_current_tenant_id
 
 User = get_user_model()
 
@@ -33,19 +34,31 @@ def dashboard_statistics(request):
     - Team overview
     """
     user = request.user
+    tenant_id = get_current_tenant_id(request)
+    
+    if not tenant_id:
+        return error_response(
+            message="Tenant not found. Please ensure you're accessing via correct subdomain or X-Tenant-Subdomain header.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    
     is_admin = getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)
     
     try:
-        # Get projects accessible to user
+        # Get projects accessible to user (tenant-scoped)
         if is_admin:
-            projects_qs = Project.objects.all()
-            tasks_qs = Task.objects.all()
-            users_qs = User.objects.filter(is_active=True)
+            projects_qs = Project.objects.filter(tenant_id=tenant_id)
+            tasks_qs = Task.objects.filter(tenant_id=tenant_id)
+            users_qs = User.objects.filter(tenant_id=tenant_id, is_active=True)
         else:
             projects_qs = Project.objects.filter(
+                tenant_id=tenant_id
+            ).filter(
                 Q(owner=user) | Q(members=user) | Q(tasks__assignees=user)
             ).distinct()
             tasks_qs = Task.objects.filter(
+                tenant_id=tenant_id
+            ).filter(
                 Q(assignees=user) | Q(created_by=user) | Q(project__in=projects_qs)
             ).distinct()
             # Get unique users from accessible projects and tasks
@@ -76,7 +89,7 @@ def dashboard_statistics(request):
         team_members_with_tasks = []
         if is_admin:
             for member in users_qs[:10]:  # Limit to 10 for dashboard
-                task_count = Task.objects.filter(assignees=member).count()
+                task_count = Task.objects.filter(tenant_id=tenant_id, assignees=member).count()
                 team_members_with_tasks.append({
                     "id": member.id,
                     "email": member.email,
@@ -89,6 +102,7 @@ def dashboard_statistics(request):
             # For regular users, show team members from their projects
             for member in users_qs[:10]:
                 task_count = Task.objects.filter(
+                    tenant_id=tenant_id,
                     assignees=member,
                     project__in=projects_qs
                 ).count()

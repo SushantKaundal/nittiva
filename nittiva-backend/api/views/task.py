@@ -7,9 +7,11 @@ This module contains viewsets for task management.
 from django.db.models import Q
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import permissions, viewsets
+from rest_framework.exceptions import ValidationError
 
 from ..models import Task
 from ..serializers import TaskSerializer
+from ..utils.tenant import get_current_tenant_id
 
 
 class TaskViewSet(viewsets.ModelViewSet):
@@ -27,9 +29,15 @@ class TaskViewSet(viewsets.ModelViewSet):
     filterset_fields = ["status", "priority", "project"]
 
     def get_queryset(self):
-        """Get queryset filtered by user permissions."""
+        """Get queryset filtered by tenant and user permissions."""
         u = self.request.user
-        qs = Task.objects.select_related("project").prefetch_related("assignees")
+        tenant_id = get_current_tenant_id(self.request)
+        
+        if not tenant_id:
+            raise ValidationError("Tenant not found. Please ensure you're accessing via correct subdomain or X-Tenant-Subdomain header.")
+
+        # Start with tenant-scoped queryset
+        qs = Task.objects.filter(tenant_id=tenant_id).select_related("project").prefetch_related("assignees")
 
         # accept either ?project=14 (DRF default) or ?projectId=14 (your UI)
         project_id = self.request.query_params.get("project") or \
@@ -37,7 +45,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         if project_id:
             qs = qs.filter(project_id=project_id)
 
-        # Admins/staff: see everything
+        # Admins/staff: see everything in their tenant
         if getattr(u, "is_staff", False) or getattr(u, "is_superuser", False):
             return qs.order_by("-created_at")
 
@@ -47,4 +55,12 @@ class TaskViewSet(viewsets.ModelViewSet):
               .distinct()
               .order_by("-created_at")
         )
+    
+    def perform_create(self, serializer):
+        """Create task with tenant set from request context."""
+        tenant_id = get_current_tenant_id(self.request)
+        if not tenant_id:
+            raise ValidationError("Tenant not found.")
+        # tenant_id is already set in serializer.create() method, so just save
+        serializer.save()
 

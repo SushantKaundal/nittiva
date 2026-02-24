@@ -18,6 +18,9 @@ class Project(models.Model):
         COMPLETED = "completed", "Completed"
         ARCHIVED = "archived", "Archived"
 
+    # Multi-tenant: Each project belongs to a tenant
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True, help_text="Tenant this project belongs to")
+    
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -49,8 +52,9 @@ class Project(models.Model):
     class Meta:
         db_table = "projects"
         indexes = [
-            models.Index(fields=["owner", "status"]),
-            models.Index(fields=["name"]),
+            models.Index(fields=["tenant_id", "owner"]),
+            models.Index(fields=["tenant_id", "status"]),
+            models.Index(fields=["tenant_id", "name"]),
         ]
 
     def __str__(self):
@@ -65,6 +69,9 @@ class ProjectMember(models.Model):
         MEMBER = "member", "Member"
         VIEWER = "viewer", "Viewer"
 
+    # Multi-tenant: Each project member belongs to a tenant
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True, help_text="Tenant this membership belongs to")
+    
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
@@ -80,6 +87,10 @@ class ProjectMember(models.Model):
 
     class Meta:
         db_table = "project_members"
+        indexes = [
+            models.Index(fields=["tenant_id", "project"]),
+            models.Index(fields=["tenant_id", "user"]),
+        ]
         constraints = [
             UniqueConstraint(fields=["project", "user"], name="uniq_project_user"),
         ]

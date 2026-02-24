@@ -55,22 +55,41 @@ class ProjectSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "owner", "created_at", "updated_at")
 
     def create(self, validated_data):
-        """Create a new project with members."""
+        """Create a new project with members and tenant."""
         request = self.context.get("request")
         member_ids = validated_data.pop("member_ids", [])
+        
+        # Get tenant_id from request (set by middleware)
+        tenant_id = None
+        if hasattr(request, 'tenant_id'):
+            tenant_id = request.tenant_id
+        elif hasattr(request, 'tenant') and request.tenant:
+            tenant_id = request.tenant.id
+        
+        if not tenant_id:
+            raise serializers.ValidationError({"tenant": "Tenant not found. Please ensure you're accessing via correct subdomain."})
+        
         with transaction.atomic():
-            project = Project.objects.create(owner=request.user, **validated_data)
+            project = Project.objects.create(
+                owner=request.user,
+                tenant_id=tenant_id,
+                **validated_data
+            )
 
             # Ensure creator is an admin member
             ProjectMember.objects.get_or_create(
-                project=project, user=request.user, defaults={"role": "admin"}
+                project=project,
+                user=request.user,
+                defaults={"role": "admin", "tenant_id": tenant_id}
             )
 
             if member_ids:
-                users = User.objects.filter(id__in=member_ids).distinct()
+                users = User.objects.filter(id__in=member_ids, tenant_id=tenant_id).distinct()
                 for u in users:
                     ProjectMember.objects.get_or_create(
-                        project=project, user=u, defaults={"role": "member"}
+                        project=project,
+                        user=u,
+                        defaults={"role": "member", "tenant_id": tenant_id}
                     )
         return project
 

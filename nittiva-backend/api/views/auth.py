@@ -6,7 +6,7 @@ This module contains views for authentication, registration, and health checks.
 
 from django.db import connection
 from django.http import JsonResponse
-from rest_framework import permissions, status
+from rest_framework import permissions, status, serializers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -16,6 +16,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth import get_user_model
 from ..serializers import RegisterSerializer, UserSerializer, GoogleAuthSerializer
 from ..utils.responses import success_response, error_response
+from ..utils.tenant import get_current_tenant_id
 
 User = get_user_model()
 
@@ -29,13 +30,11 @@ except ImportError:
 
 
 class LoginSerializer(TokenObtainPairSerializer):
-    """Custom login serializer that adds user info to token."""
-
-    def validate(self, attrs):
-        """Validate credentials and return token data."""
-        data = super().validate(attrs)
-        return data
-
+    """Custom login serializer with tenant validation via company_id."""
+    
+    company_id = serializers.CharField(write_only=True, required=False, allow_blank=True, help_text="Company ID (optional for superusers)")
+    email = serializers.CharField(required=True, help_text="Username or email")
+    
     @classmethod
     def get_token(cls, user):
         """Add custom claims to token."""
@@ -43,7 +42,91 @@ class LoginSerializer(TokenObtainPairSerializer):
         token["email"] = user.email
         token["name"] = getattr(user, "name", "")
         token["role"] = getattr(user, "role", "user")
+        token["is_superuser"] = user.is_superuser
+        token["is_staff"] = user.is_staff
         return token
+    
+    def validate_email(self, value):
+        """Convert username to email format if needed."""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Username is required.")
+        value = value.strip()
+        # If no @, append @example.com to match stored format
+        if '@' not in value:
+            value = f"{value}@example.com"
+        return value.lower()
+    
+    def validate(self, attrs):
+        """Validate credentials and company_id."""
+        company_id = attrs.get("company_id", "").upper().strip()
+        # Normalize email/username
+        email = attrs.get("email", "").strip()
+        if '@' not in email:
+            email = f"{email}@example.com"
+        attrs["email"] = email.lower()
+        
+        # Validate user credentials first
+        data = super().validate(attrs)
+        user = self.user  # User object from super().validate
+        
+        # Superusers and staff can login without company_id (for admin panel)
+        if user.is_superuser or user.is_staff:
+            # Allow admin login without company_id validation
+            if not company_id or company_id == "ADMIN":
+                return data
+            # If they provide a company_id, validate it but don't require it
+            if company_id:
+                from ..models import Tenant
+                try:
+                    tenant = Tenant.objects.get(company_id=company_id, is_active=True)
+                    # Superusers can login to any tenant
+                    return data
+                except Tenant.DoesNotExist:
+                    # Even if tenant doesn't exist, superusers can still login
+                    return data
+        
+        # Regular users (agents) must provide valid company_id
+        # Managers can login without company_id (backend will find from user.tenant_id)
+        if not company_id:
+            # For managers, try to get tenant from user's tenant_id
+            if user.tenant_id:
+                from ..models import Tenant
+                try:
+                    tenant = Tenant.objects.get(id=user.tenant_id, is_active=True)
+                    # Manager login successful
+                    return data
+                except Tenant.DoesNotExist:
+                    pass
+            
+            # If no tenant found and no company_id, require it
+            raise serializers.ValidationError({
+                "company_id": "Company ID is required. Please contact your administrator."
+            })
+        
+        # Look up tenant by company_id
+        from ..models import Tenant
+        try:
+            tenant = Tenant.objects.get(company_id=company_id, is_active=True)
+        except Tenant.DoesNotExist:
+            raise serializers.ValidationError({
+                "company_id": f"Invalid company ID '{company_id}'. Please check with your administrator."
+            })
+        
+        # Validate that user belongs to the tenant
+        if not user.tenant_id:
+            raise serializers.ValidationError({
+                "detail": "User is not associated with any tenant. Please contact support."
+            })
+        
+        if str(user.tenant_id) != str(tenant.id):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Login attempt for user {user.email} (tenant {user.tenant_id}) with company_id {company_id} (tenant {tenant.id})")
+            raise serializers.ValidationError({
+                "company_id": f"User does not belong to company '{company_id}'. Please check your company ID."
+            })
+        
+        return data
 
 
 class LoginView(TokenObtainPairView):
@@ -52,18 +135,46 @@ class LoginView(TokenObtainPairView):
     serializer_class = LoginSerializer
 
     def post(self, request, *args, **kwargs):
-        """Handle login request."""
+        """Handle login request with tenant validation via company_id."""
         serializer = self.get_serializer(data=request.data)
         try:
             serializer.is_valid(raise_exception=True)
+            
+            # Get user from validated data
+            user = serializer.user
+            
+            # Superusers and staff can login from any tenant (bypass tenant check)
+            # But they still need to provide company_id for context
+            # Regular users must belong to the tenant specified by company_id
+            # This is already validated in the serializer
+            
+            # Include user data in response for frontend
+            user_data = UserSerializer(user).data
+            
             return success_response(
-                data=serializer.validated_data,
+                data={
+                    **serializer.validated_data,  # Includes access and refresh tokens
+                    "user": user_data,  # Include full user data with is_superuser
+                },
                 message="Login successful",
                 status_code=status.HTTP_200_OK,
             )
         except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Login failed: {e}", exc_info=True)
+            
+            # Check if it's a validation error with company_id
+            if hasattr(e, 'detail') and isinstance(e.detail, dict):
+                if 'company_id' in e.detail:
+                    return error_response(
+                        message=e.detail['company_id'][0] if isinstance(e.detail['company_id'], list) else str(e.detail['company_id']),
+                        errors=e.detail,
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+            
             return error_response(
-                message="Invalid credentials. Please check email/password.",
+                message="Invalid credentials. Please check email, password, and company ID.",
                 errors=str(e),
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
@@ -72,25 +183,53 @@ class LoginView(TokenObtainPairView):
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])
 def register(request):
-    """Register a new user."""
-    serializer = RegisterSerializer(data=request.data)
-    if serializer.is_valid():
+    """User registration endpoint (Manager and Agent)."""
+    serializer = RegisterSerializer(data=request.data, context={"request": request})
+    
+    if not serializer.is_valid():
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Registration validation failed: {serializer.errors}")
+        return error_response(
+            message="Registration failed",
+            errors=serializer.errors,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    
+    try:
         user = serializer.save()
         refresh = RefreshToken.for_user(user)
+        
+        # Prepare response data
+        response_data = {
+            "user": UserSerializer(user).data,
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+        }
+        
+        # If manager registration, include company_id in response
+        created_company_id = serializer.context.get('created_company_id')
+        if created_company_id:
+            response_data["company_id"] = created_company_id
+            response_data["message"] = f"Manager account created successfully! Your Company ID is: {created_company_id}"
+        else:
+            response_data["message"] = "User registered successfully"
+        
         return success_response(
-            data={
-                "user": UserSerializer(user).data,
-                "access_token": str(refresh.access_token),
-                "refresh_token": str(refresh),
-            },
-            message="User registered successfully",
+            data=response_data,
+            message=response_data.get("message", "User registered successfully"),
             status_code=status.HTTP_201_CREATED,
         )
-    return error_response(
-        message="Registration failed",
-        errors=serializer.errors,
-        status_code=status.HTTP_400_BAD_REQUEST,
-    )
+    except Exception as e:
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        logger.error(f"Registration error: {str(e)}\n{traceback.format_exc()}")
+        
+        return error_response(
+            message=f"Registration failed: {str(e)}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 @api_view(["GET"])

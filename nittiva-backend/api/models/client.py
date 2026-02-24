@@ -11,6 +11,9 @@ from django.db import models
 class Client(models.Model):
     """Client model for managing client information."""
 
+    # Multi-tenant: Each client belongs to a tenant
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True, help_text="Tenant this client belongs to")
+    
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -29,7 +32,10 @@ class Client(models.Model):
 
     class Meta:
         db_table = "clients"
-        indexes = [models.Index(fields=["owner", "name"])]
+        indexes = [
+            models.Index(fields=["tenant_id", "owner"]),
+            models.Index(fields=["tenant_id", "name"]),
+        ]
 
     def __str__(self):
         return self.name

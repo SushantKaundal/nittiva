@@ -51,6 +51,8 @@ CSRF_TRUSTED_ORIGINS = [
     # Local dev (HTTP)
     "http://localhost:8080",
     "http://127.0.0.1:8080",
+    "http://localhost:8081",  # Vite dev server alternative port
+    "http://127.0.0.1:8081",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:5173",
@@ -83,6 +85,7 @@ INSTALLED_APPS = [
 # -------------------------------------------------------------------
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",          # must be at the top
+    "api.middleware.TenantMiddleware",                # Multi-tenant: resolve tenant from subdomain
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -208,6 +211,8 @@ CORS_ALLOWED_ORIGINS = [
     # Local dev
     "http://localhost:8080",
     "http://127.0.0.1:8080",
+    "http://localhost:8081",  # Vite dev server alternative port
+    "http://127.0.0.1:8081",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:5173",
@@ -217,6 +222,9 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = False
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
+    "X-Tenant-Subdomain",  # For backward compatibility
+    "X-Company-ID",  # Primary method for company_id-based multi-tenancy
+    "Company-ID",  # Alternative header name
     "authorization",
     "workspace_id",
 ]

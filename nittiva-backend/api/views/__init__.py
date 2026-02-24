@@ -11,6 +11,12 @@ from .project import ProjectViewSet
 from .task import TaskViewSet
 from .password_reset import request_password_reset, reset_password
 from .dashboard import dashboard_statistics
+from .invitation import invite_user_to_project, list_project_invitations, accept_invitation, get_invitation_by_token
+from .tenant import TenantViewSet
+from .goal import GoalViewSet
+from .comment import CommentViewSet
+from .attachment import AttachmentViewSet
+from .time_log import TimeLogViewSet
 
 __all__ = [
     "LoginView",
@@ -25,5 +31,14 @@ __all__ = [
     "ClientViewSet",
     "ProjectViewSet",
     "TaskViewSet",
+    "invite_user_to_project",
+    "list_project_invitations",
+    "accept_invitation",
+    "get_invitation_by_token",
+    "TenantViewSet",
+    "GoalViewSet",
+    "CommentViewSet",
+    "AttachmentViewSet",
+    "TimeLogViewSet",
 ]
 

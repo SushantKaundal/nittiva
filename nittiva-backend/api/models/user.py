@@ -6,6 +6,7 @@ This module contains the custom User model and UserManager for authentication.
 
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.db import models
+from django.core.exceptions import ValidationError
 
 
 class UserManager(BaseUserManager):
@@ -35,6 +36,11 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin):
     """Custom user model using email as the username."""
 
+    # Multi-tenant: Each user belongs to a tenant
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True, help_text="Tenant this user belongs to")
+    
+    # Email must be unique (Django requirement for USERNAME_FIELD)
+    # Per-tenant uniqueness is enforced by UniqueConstraint below
     email = models.EmailField(unique=True)
     name = models.CharField(max_length=120, blank=True)
     role = models.CharField(max_length=30, default="user")
@@ -49,6 +55,17 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = "users"
+        indexes = [
+            models.Index(fields=["tenant_id", "email"]),
+            models.Index(fields=["tenant_id", "is_active"]),
+        ]
+        # Email should be unique per tenant, not globally
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_id", "email"], name="unique_tenant_email"),
+        ]
 
     objects = UserManager()
     USERNAME_FIELD = "email"

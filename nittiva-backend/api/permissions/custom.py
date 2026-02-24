@@ -19,3 +19,13 @@ class IsAdminOrReadOnly(BasePermission):
             return True
         return bool(request.user and request.user.is_staff)
 
+
+class IsSuperUser(BasePermission):
+    """
+    Permission class that only allows superusers.
+    Used for sensitive operations like tenant management.
+    """
+
+    def has_permission(self, request, view):
+        """Check if user is a superuser."""
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)

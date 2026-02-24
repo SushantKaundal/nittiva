@@ -32,6 +32,13 @@ class TaskSerializer(serializers.ModelSerializer):
 
     project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all())
     assignees = UserSerializer(many=True, read_only=True)  # read: expanded users
+    parent = serializers.PrimaryKeyRelatedField(
+        queryset=Task.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    children = serializers.SerializerMethodField()
+    children_count = serializers.SerializerMethodField()
 
     # write: list of user IDs
     assignee_ids = serializers.ListField(
@@ -47,11 +54,16 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = [
             "id",
+            "work_item_type",
             "project",
+            "parent",
+            "children",
+            "children_count",
             "title",
             "description",
             "status",
             "priority",
+            "story_points",
             "progress",
             "due_date",
             "time_tracked_seconds",
@@ -66,12 +78,23 @@ class TaskSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "assignees",
+            "children",
+            "children_count",
             "created_by",
             "updated_by",
             "created_at",
             "updated_at",
             "time_tracked_seconds",
         ]
+    
+    def get_children(self, obj):
+        """Get child tasks."""
+        children = obj.children.filter(tenant_id=obj.tenant_id).order_by("created_at")
+        return TaskSerializer(children, many=True).data
+    
+    def get_children_count(self, obj):
+        """Get count of child tasks."""
+        return obj.children.filter(tenant_id=obj.tenant_id).count()
 
     def _set_audit_fields(self, instance, *, creating: bool):
         """Set audit fields (created_by, updated_by)."""
@@ -82,20 +105,55 @@ class TaskSerializer(serializers.ModelSerializer):
         instance.updated_by = user
 
     def _set_assignees(self, task: Task, assignee_ids):
-        """Set task assignees."""
+        """Set task assignees and ensure they're project members."""
         if assignee_ids is None:
             return
-        users = User.objects.filter(id__in=assignee_ids).distinct()
+        # Filter users by tenant_id to ensure they belong to the same tenant
+        tenant_id = task.tenant_id
+        users = User.objects.filter(id__in=assignee_ids, tenant_id=tenant_id).distinct()
         task.assignees.set(users)
+        
+        # Update TaskAssignment tenant_id
+        for assignment in task.assignments.all():
+            assignment.tenant_id = tenant_id
+            assignment.save()
+        
+        # Ensure all assignees are project members (so they can see the project)
+        if task.project:
+            from ..models import ProjectMember
+            for user in users:
+                ProjectMember.objects.get_or_create(
+                    project=task.project,
+                    user=user,
+                    defaults={"role": "member", "tenant_id": tenant_id}
+                )
 
     def create(self, validated_data):
-        """Create a new task with assignees."""
+        """Create a new task with assignees and tenant."""
         assignee_ids = validated_data.pop("assignee_ids", [])
+        request = self.context.get("request")
+        
+        # Get tenant_id from request (set by middleware)
+        tenant_id = None
+        if hasattr(request, 'tenant_id'):
+            tenant_id = request.tenant_id
+        elif hasattr(request, 'tenant') and request.tenant:
+            tenant_id = request.tenant.id
+        
+        if not tenant_id:
+            raise serializers.ValidationError({"tenant": "Tenant not found. Please ensure you're accessing via correct subdomain."})
+        
         with transaction.atomic():
-            task = Task(**validated_data)
+            task = Task(tenant_id=tenant_id, **validated_data)
             self._set_audit_fields(task, creating=True)
             task.save()
             self._set_assignees(task, assignee_ids)
+            
+            # Ensure TaskAssignments have tenant_id
+            if assignee_ids:
+                for assignment in task.assignments.all():
+                    assignment.tenant_id = tenant_id
+                    assignment.save()
         return task
 
     def update(self, instance, validated_data):
