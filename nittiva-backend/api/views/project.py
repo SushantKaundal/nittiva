@@ -7,7 +7,7 @@ This module contains viewsets for project management.
 from django.db.models import Q, Count
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import permissions, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied
 
 from ..models import Project
 from ..serializers import ProjectSerializer
@@ -21,6 +21,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     - Staff sees all
     - Regular users see projects they own, are members of, OR have tasks in
       (so assignees will see the project in the sidebar)
+    - Agents CANNOT create or update projects (read-only access)
     """
 
     serializer_class = ProjectSerializer
@@ -59,9 +60,36 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Create project with tenant and owner set from request context."""
+        # Prevent agents from creating projects
+        user = self.request.user
+        if hasattr(user, 'role') and user.role == "agent":
+            raise PermissionDenied(
+                detail="Agents do not have permission to create projects. Please contact your manager."
+            )
+        
         tenant_id = get_current_tenant_id(self.request)
         if not tenant_id:
             raise ValidationError("Tenant not found.")
         # tenant_id is already set in serializer.create() method, so just save
         serializer.save()
+    
+    def perform_update(self, serializer):
+        """Update project - prevent agents from editing."""
+        # Prevent agents from updating projects
+        user = self.request.user
+        if hasattr(user, 'role') and user.role == "agent":
+            raise PermissionDenied(
+                detail="Agents do not have permission to edit projects. Please contact your manager."
+            )
+        serializer.save()
+    
+    def perform_destroy(self, instance):
+        """Delete project - prevent agents from deleting."""
+        # Prevent agents from deleting projects
+        user = self.request.user
+        if hasattr(user, 'role') and user.role == "agent":
+            raise PermissionDenied(
+                detail="Agents do not have permission to delete projects. Please contact your manager."
+            )
+        instance.delete()
 

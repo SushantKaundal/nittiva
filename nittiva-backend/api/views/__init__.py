@@ -17,6 +17,9 @@ from .goal import GoalViewSet
 from .comment import CommentViewSet
 from .attachment import AttachmentViewSet
 from .time_log import TimeLogViewSet
+from .custom_field import CustomFieldViewSet
+from .sprint import SprintViewSet
+from .task_status import TaskStatusViewSet, TaskPriorityViewSet
 
 __all__ = [
     "LoginView",
@@ -40,5 +43,9 @@ __all__ = [
     "CommentViewSet",
     "AttachmentViewSet",
     "TimeLogViewSet",
+    "CustomFieldViewSet",
+    "SprintViewSet",
+    "TaskStatusViewSet",
+    "TaskPriorityViewSet",
 ]
 

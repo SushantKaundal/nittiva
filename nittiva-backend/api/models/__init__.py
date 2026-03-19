@@ -14,6 +14,9 @@ from .goal import Goal, GoalLinkedEntity
 from .comment import Comment
 from .attachment import Attachment
 from .time_log import TimeLog
+from .custom_field import CustomField
+from .sprint import Sprint, SprintMember
+from .task_status import TaskStatus, TaskPriority
 
 __all__ = [
     "Tenant",
@@ -30,5 +33,10 @@ __all__ = [
     "Comment",
     "Attachment",
     "TimeLog",
+    "CustomField",
+    "Sprint",
+    "SprintMember",
+    "TaskStatus",
+    "TaskPriority",
 ]
 

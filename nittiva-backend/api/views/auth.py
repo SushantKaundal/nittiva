@@ -85,11 +85,11 @@ class LoginSerializer(TokenObtainPairSerializer):
                     # Even if tenant doesn't exist, superusers can still login
                     return data
         
-        # Regular users (agents) must provide valid company_id
+        # AGENTS MUST ALWAYS PROVIDE COMPANY_ID - NO EXCEPTIONS
         # Managers can login without company_id (backend will find from user.tenant_id)
         if not company_id:
-            # For managers, try to get tenant from user's tenant_id
-            if user.tenant_id:
+            # Only managers can login without company_id
+            if user.role == "manager" and user.tenant_id:
                 from ..models import Tenant
                 try:
                     tenant = Tenant.objects.get(id=user.tenant_id, is_active=True)
@@ -98,7 +98,11 @@ class LoginSerializer(TokenObtainPairSerializer):
                 except Tenant.DoesNotExist:
                     pass
             
-            # If no tenant found and no company_id, require it
+            # For agents or if manager has no tenant, require company_id
+            if user.role == "agent":
+                raise serializers.ValidationError({
+                    "company_id": "Company ID is required for agent login. Please enter your company ID."
+                })
             raise serializers.ValidationError({
                 "company_id": "Company ID is required. Please contact your administrator."
             })
@@ -118,10 +122,23 @@ class LoginSerializer(TokenObtainPairSerializer):
                 "detail": "User is not associated with any tenant. Please contact support."
             })
         
-        if str(user.tenant_id) != str(tenant.id):
+        # STRICT VALIDATION: company_id MUST match user's tenant
+        # Convert both to strings for comparison to handle UUID properly
+        user_tenant_id_str = str(user.tenant_id)
+        tenant_id_str = str(tenant.id)
+        
+        if user_tenant_id_str != tenant_id_str:
             import logging
             logger = logging.getLogger(__name__)
-            logger.warning(f"Login attempt for user {user.email} (tenant {user.tenant_id}) with company_id {company_id} (tenant {tenant.id})")
+            logger.warning(
+                f"Login rejected: user {user.email} (tenant_id={user_tenant_id_str}, role={user.role}) "
+                f"attempted login with company_id '{company_id}' (tenant_id={tenant_id_str})"
+            )
+            # For agents, provide more specific error message
+            if user.role == "agent":
+                raise serializers.ValidationError({
+                    "company_id": f"Agent account does not belong to company '{company_id}'. Please verify your company ID and try again."
+                })
             raise serializers.ValidationError({
                 "company_id": f"User does not belong to company '{company_id}'. Please check your company ID."
             })

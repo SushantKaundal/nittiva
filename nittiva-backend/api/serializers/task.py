@@ -8,8 +8,9 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.db import transaction
 
-from ..models import Task, TaskAssignment, Project
+from ..models import Task, TaskAssignment, Project, TaskStatus, TaskPriority
 from .user import UserSerializer
+from .task_status import TaskStatusSerializer, TaskPrioritySerializer
 
 User = get_user_model()
 
@@ -30,7 +31,11 @@ class TaskAssignmentSerializer(serializers.ModelSerializer):
 class TaskSerializer(serializers.ModelSerializer):
     """Serializer for task data."""
 
-    project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all())
+    project = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.all(),
+        required=False,
+        allow_null=True
+    )
     assignees = UserSerializer(many=True, read_only=True)  # read: expanded users
     parent = serializers.PrimaryKeyRelatedField(
         queryset=Task.objects.all(),
@@ -49,6 +54,34 @@ class TaskSerializer(serializers.ModelSerializer):
 
     created_by = UserSerializer(read_only=True)
     updated_by = UserSerializer(read_only=True)
+    
+    # Custom status and priority
+    custom_status = TaskStatusSerializer(read_only=True)
+    custom_status_id = serializers.PrimaryKeyRelatedField(
+        queryset=TaskStatus.objects.none(),
+        source="custom_status",
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
+    custom_priority = TaskPrioritySerializer(read_only=True)
+    custom_priority_id = serializers.PrimaryKeyRelatedField(
+        queryset=TaskPriority.objects.none(),
+        source="custom_priority",
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request:
+            from ..utils.tenant import get_current_tenant_id
+            tenant_id = get_current_tenant_id(request)
+            if tenant_id:
+                self.fields["custom_status_id"].queryset = TaskStatus.objects.filter(tenant_id=tenant_id)
+                self.fields["custom_priority_id"].queryset = TaskPriority.objects.filter(tenant_id=tenant_id)
 
     class Meta:
         model = Task
@@ -59,10 +92,15 @@ class TaskSerializer(serializers.ModelSerializer):
             "parent",
             "children",
             "children_count",
+            "sprint",  # Sprint FK
             "title",
             "description",
             "status",
             "priority",
+            "custom_status",
+            "custom_status_id",
+            "custom_priority",
+            "custom_priority_id",
             "story_points",
             "progress",
             "due_date",

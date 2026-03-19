@@ -4,7 +4,7 @@ Time log serializers.
 This module contains serializers for time log data.
 """
 from rest_framework import serializers
-from ..models import TimeLog
+from ..models import TimeLog, Task
 from .user import UserSerializer
 from .task import TaskSerializer
 
@@ -14,6 +14,13 @@ class TimeLogSerializer(serializers.ModelSerializer):
     
     user = UserSerializer(read_only=True)
     task = TaskSerializer(read_only=True)
+    task_id = serializers.PrimaryKeyRelatedField(
+        queryset=Task.objects.none(),  # Placeholder queryset, will be filtered in __init__
+        source="task",
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
     duration_hours = serializers.SerializerMethodField()
     duration_formatted = serializers.SerializerMethodField()
     
@@ -22,6 +29,7 @@ class TimeLogSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "task",
+            "task_id",
             "user",
             "started_at",
             "ended_at",
@@ -35,17 +43,36 @@ class TimeLogSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "user", "duration_seconds", "created_at", "updated_at"]
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Set task queryset based on request context
+        request = self.context.get("request")
+        if request:
+            from ..utils.tenant import get_current_tenant_id
+            tenant_id = get_current_tenant_id(request)
+            if tenant_id:
+                self.fields['task_id'].queryset = Task.objects.filter(tenant_id=tenant_id)
+            else:
+                # If no tenant_id, use empty queryset (will fail validation, but prevents errors)
+                self.fields['task_id'].queryset = Task.objects.none()
+    
     def get_duration_hours(self, obj):
         """Get duration in hours."""
         return round(obj.duration_seconds / 3600, 2)
     
     def get_duration_formatted(self, obj):
         """Get formatted duration string."""
-        hours = obj.duration_seconds // 3600
-        minutes = (obj.duration_seconds % 3600) // 60
+        total_seconds = obj.duration_seconds
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        
         if hours > 0:
-            return f"{hours}h {minutes}m"
-        return f"{minutes}m"
+            return f"{hours}h {minutes}m {seconds}s"
+        elif minutes > 0:
+            return f"{minutes}m {seconds}s"
+        else:
+            return f"{seconds}s"
     
     def create(self, validated_data):
         request = self.context.get("request")

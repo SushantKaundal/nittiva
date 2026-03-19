@@ -15,6 +15,9 @@ from .goal import GoalSerializer, GoalLinkedEntitySerializer
 from .comment import CommentSerializer
 from .attachment import AttachmentSerializer
 from .time_log import TimeLogSerializer
+from .custom_field import CustomFieldSerializer
+from .sprint import SprintSerializer, SprintDetailSerializer, SprintSummarySerializer, SprintMemberSerializer
+from .task_status import TaskStatusSerializer, TaskPrioritySerializer
 
 __all__ = [
     "RegisterSerializer",
@@ -36,5 +39,12 @@ __all__ = [
     "CommentSerializer",
     "AttachmentSerializer",
     "TimeLogSerializer",
+    "CustomFieldSerializer",
+    "SprintSerializer",
+    "SprintDetailSerializer",
+    "SprintSummarySerializer",
+    "SprintMemberSerializer",
+    "TaskStatusSerializer",
+    "TaskPrioritySerializer",
 ]
 

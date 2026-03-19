@@ -23,6 +23,10 @@ from ..views import (
     CommentViewSet,
     AttachmentViewSet,
     TimeLogViewSet,
+    CustomFieldViewSet,
+    SprintViewSet,
+    TaskStatusViewSet,
+    TaskPriorityViewSet,
     healthz,
     readyz,
     invite_user_to_project,
@@ -42,6 +46,10 @@ router.register(r'goals', GoalViewSet, basename='goal')
 router.register(r'comments', CommentViewSet, basename='comment')
 router.register(r'attachments', AttachmentViewSet, basename='attachment')
 router.register(r'time-logs', TimeLogViewSet, basename='time-log')
+router.register(r'custom-fields', CustomFieldViewSet, basename='custom-field')
+router.register(r'sprints', SprintViewSet, basename='sprint')
+router.register(r'task-statuses', TaskStatusViewSet, basename='task-status')
+router.register(r'task-priorities', TaskPriorityViewSet, basename='task-priority')
 
 # Main URL patterns
 urlpatterns = [

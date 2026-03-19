@@ -66,8 +66,14 @@ class ProjectSerializer(serializers.ModelSerializer):
         elif hasattr(request, 'tenant') and request.tenant:
             tenant_id = request.tenant.id
         
+        # Fallback: Use user's tenant_id if middleware didn't set it
+        if not tenant_id and hasattr(request, 'user') and request.user.is_authenticated:
+            user = request.user
+            if hasattr(user, 'tenant_id') and user.tenant_id:
+                tenant_id = user.tenant_id
+        
         if not tenant_id:
-            raise serializers.ValidationError({"tenant": "Tenant not found. Please ensure you're accessing via correct subdomain."})
+            raise serializers.ValidationError({"tenant": "Tenant not found. Please ensure you're accessing via correct subdomain or that your account is associated with a tenant."})
         
         with transaction.atomic():
             project = Project.objects.create(

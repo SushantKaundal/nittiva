@@ -100,6 +100,18 @@ class TenantMiddleware(MiddlewareMixin):
                 # Should not happen, but handle it
                 tenant = Tenant.objects.filter(company_id=company_id.upper().strip(), is_active=True).first()
         
+        # Fallback: If no tenant found and user is authenticated, use user's tenant_id
+        if not tenant and hasattr(request, 'user') and request.user.is_authenticated:
+            user = request.user
+            if hasattr(user, 'tenant_id') and user.tenant_id:
+                try:
+                    tenant = Tenant.objects.get(id=user.tenant_id, is_active=True)
+                    # Set company_id from tenant for reference
+                    if tenant and not company_id:
+                        company_id = tenant.company_id
+                except Tenant.DoesNotExist:
+                    tenant = None
+        
         # Attach tenant to request
         request.tenant = tenant
         request.tenant_id = tenant.id if tenant else None

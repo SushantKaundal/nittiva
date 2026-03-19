@@ -60,11 +60,40 @@ class Task(models.Model):
         blank=True,
     )
 
+    sprint = models.ForeignKey(
+        "Sprint",
+        on_delete=models.SET_NULL,
+        related_name="tasks",
+        null=True,
+        blank=True,
+        help_text="Sprint this task belongs to",
+    )
+
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True, null=True)
 
+    # Legacy status/priority fields (for backward compatibility)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.TODO)
     priority = models.CharField(max_length=10, choices=Priority.choices, default=Priority.MEDIUM)
+    
+    # Custom status/priority (optional - if set, these take precedence)
+    custom_status = models.ForeignKey(
+        "TaskStatus",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tasks",
+        help_text="Custom status (overrides status field if set)"
+    )
+    custom_priority = models.ForeignKey(
+        "TaskPriority",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tasks",
+        help_text="Custom priority (overrides priority field if set)"
+    )
+    
     due_date = models.DateField(blank=True, null=True)
     
     # Story points (for Epics/Stories)
@@ -102,6 +131,10 @@ class Task(models.Model):
             models.Index(fields=["tenant_id", "work_item_type"]),
             models.Index(fields=["tenant_id", "parent"]),
             models.Index(fields=["tenant_id", "due_date"]),
+            models.Index(fields=["tenant_id", "sprint"]),
+            models.Index(fields=["sprint", "status"]),
+            models.Index(fields=["tenant_id", "custom_status"]),
+            models.Index(fields=["tenant_id", "custom_priority"]),
         ]
 
     def __str__(self):

@@ -20,7 +20,10 @@ class TimeLog(models.Model):
     task = models.ForeignKey(
         "Task",
         on_delete=models.CASCADE,
-        related_name="time_logs"
+        related_name="time_logs",
+        null=True,
+        blank=True,
+        help_text="Optional task this time log is associated with"
     )
     
     user = models.ForeignKey(
@@ -57,7 +60,8 @@ class TimeLog(models.Model):
     def __str__(self):
         hours = self.duration_seconds // 3600
         minutes = (self.duration_seconds % 3600) // 60
-        return f"{hours}h {minutes}m on {self.task.title}"
+        task_name = self.task.title if self.task else "General work"
+        return f"{hours}h {minutes}m on {task_name}"
     
     def save(self, *args, **kwargs):
         """Calculate duration if ended_at is set."""
