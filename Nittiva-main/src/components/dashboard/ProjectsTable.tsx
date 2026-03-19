@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/context/AuthContext";
 
 interface Project {
   id: number;
@@ -86,6 +87,8 @@ const priorityLabels = {
 };
 
 export default function ProjectsTable() {
+  const { user } = useAuth();
+  const isAgent = (user as any)?.role === "agent";
   const [selectedClient, setSelectedClient] = useState<string>("");
   const [selectedUser, setSelectedUser] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -301,14 +304,17 @@ export default function ProjectsTable() {
                   ) : (
                     <div className="flex items-center gap-2">
                       <span>{project.title}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => startEditing(project)}
-                      >
-                        <Edit2 className="w-3 h-3" />
-                      </Button>
+                      {/* Hide edit button for agents */}
+                      {!isAgent && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => startEditing(project)}
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </Button>
+                      )}
                     </div>
                   )}
                 </td>

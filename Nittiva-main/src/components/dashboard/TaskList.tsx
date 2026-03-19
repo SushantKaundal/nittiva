@@ -1,9 +1,10 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, forwardRef, useImperativeHandle } from "react";
 import { motion, Reorder } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useProject } from "@/context/ProjectContext";
 import { useUser } from "@/context/UserContext";
 import { useTask } from "@/context/TaskContext";
+import { useAuth } from "@/context/AuthContext";
 import { apiService } from "@/lib/api";
 import {
   GripVertical,
@@ -17,6 +18,7 @@ import {
   ChevronDown,
   Plus,
   Settings,
+  Target,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,12 +36,23 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { TaskTimeTracker } from "@/components/ui/task-time-tracker";
 import { FieldCreator } from "@/components/ui/field-creator";
 import { FieldRenderer } from "@/components/ui/field-renderer";
 import { CustomField, TaskWithCustomFields } from "@/types/fieldTypes";
 import { EmptyTaskList } from "@/components/dashboard/EmptyTaskList";
+import { toast } from "sonner";
 
 
 
@@ -69,7 +82,20 @@ interface Column {
   resizable?: boolean;
 }
 
+export interface TaskListRef {
+  addNewTask: () => void;
+}
+
 const defaultColumns: Column[] = [
+  {
+    id: "actions-start",
+    label: "",
+    width: 80,
+    minWidth: 80,
+    maxWidth: 80,
+    sortable: false,
+    resizable: false,
+  },
   {
     id: "name",
     label: "Task name",
@@ -133,6 +159,15 @@ const defaultColumns: Column[] = [
     sortable: true,
     resizable: true,
   },
+  {
+    id: "sprint",
+    label: "Sprint",
+    width: 180,
+    minWidth: 150,
+    maxWidth: 250,
+    sortable: true,
+    resizable: true,
+  },
   // Custom fields (removed duplicate status-field and rating-field)
   {
     id: "budget-field",
@@ -148,12 +183,14 @@ const defaultColumns: Column[] = [
   { id: "actions", label: "", width: 100, sortable: false, resizable: false },
 ];
 
-export function TaskList() {
+export const TaskList = forwardRef<TaskListRef>((props, ref) => {
   const navigate = useNavigate();
   const creatingTaskRef = useRef(false);
   const [creatingTask, setCreatingTask] = useState(false);
   const { currentProject } = useProject();
   const { users, getUserById } = useUser();
+  const { user } = useAuth();
+  const isAgent = (user as any)?.role === "agent";
   const [dbUsers, setDbUsers] = useState<any[]>([]);
   const [userMap, setUserMap] = React.useState<Record<string, any>>({});
   const [loadingUsers, setLoadingUsers] = useState(true); 
@@ -164,10 +201,15 @@ export function TaskList() {
   setCustomFields,
   addTask,
   updateTask,
+  deleteTask,
   getTasksForProject,
   setTaskAssignees,
    refresh,
 } = useTask();
+
+  useImperativeHandle(ref, () => ({
+    addNewTask,
+  }));
 
   const currentUser = React.useMemo(() => apiService.getCurrentUser(), []);
   // Get tasks for current project
@@ -189,18 +231,88 @@ export function TaskList() {
     taskId: number;
     fieldId: string;
   } | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+  const [sprints, setSprints] = useState<any[]>([]);
+  const [loadingSprints, setLoadingSprints] = useState(false);
+
+  // Initialize columns from custom fields when they load
+  React.useEffect(() => {
+    const customColumns = customFields.map((field) => ({
+      id: field.id,
+      label: field.name,
+      width: field.width || 150,
+      minWidth: 100,
+      maxWidth: 300,
+      sortable: true,
+      isCustom: true,
+      fieldType: field.type,
+      resizable: true,
+    }));
+
+    // Get base default columns (excluding actions and existing custom fields)
+    const baseDefaultColumns = defaultColumns.filter(
+      (col) => col.id !== "actions" && !col.isCustom
+    );
+    
+    // Get actions column
+    const actionsColumn = defaultColumns.find((col) => col.id === "actions") || 
+      { id: "actions", label: "", width: 100, sortable: false, resizable: false };
+    
+    // Combine: base columns + custom columns + actions
+    const newColumns = [
+      ...baseDefaultColumns,
+      ...customColumns,
+      actionsColumn,
+    ];
+    
+    setColumns(newColumns);
+  }, [customFields]); // Update when customFields changes
 
   const startEditing = (task: Task) => {
     setEditingTask(task.id);
-    setEditValues(task);
+    // Ensure name and projectId are properly initialized
+    setEditValues({
+      ...task,
+      name: task.name || "",
+      projectId: task.projectId || (currentProject?.id ? String(currentProject.id) : undefined),
+    });
   };
 
-  const saveEditing = () => {
+  const saveEditing = async () => {
     if (editingTask && editValues) {
-      updateTask(editingTask, editValues);
+      try {
+        // Ensure name is properly included in the update
+        const updates: Partial<Task> = { ...editValues };
+        if (updates.name !== undefined) {
+          // Name field is already in editValues, just ensure it's sent
+          updates.name = updates.name;
+        }
+        
+        // Ensure projectId is preserved if not in updates
+        if (!updates.projectId && currentProject?.id) {
+          // Find the task to get its current projectId
+          const currentTask = tasks.find(t => t.id === editingTask);
+          if (currentTask?.projectId) {
+            updates.projectId = currentTask.projectId;
+          } else {
+            // Use current project if task doesn't have one
+            updates.projectId = String(currentProject.id);
+          }
+        }
+        
+        await updateTask(editingTask, updates);
+        if (currentProject?.id) {
+          await refresh(String(currentProject.id));
+        }
+        setEditingTask(null);
+        setEditValues({});
+      } catch (err: any) {
+        console.error("Error saving task:", err);
+        const errorMessage = err?.message || err?.response?.data?.message || "Failed to save task. Please try again.";
+        alert(errorMessage);
+      }
     }
-    setEditingTask(null);
-    setEditValues({});
   };
 
   const cancelEditing = () => {
@@ -231,8 +343,27 @@ const toggleAssignee = (taskId: number, assigneeId: string) => {
 React.useEffect(() => {
   if (currentProject?.id) {
     refresh(String(currentProject.id));
+    loadSprints();
   }
 }, [currentProject?.id, refresh]);
+
+// Load sprints for the current project
+const loadSprints = async () => {
+  if (!currentProject?.id) return;
+  
+  setLoadingSprints(true);
+  try {
+    const response = await apiService.getSprints({ project: Number(currentProject.id) });
+    if (response.success && response.data) {
+      const dataArray = Array.isArray(response.data) ? response.data : (response.data.results || []);
+      setSprints(dataArray);
+    }
+  } catch (error) {
+    console.error("Failed to load sprints:", error);
+  } finally {
+    setLoadingSprints(false);
+  }
+};
 
 
 const addNewTask = async () => {
@@ -253,7 +384,7 @@ const addNewTask = async () => {
     name: "New Task",
     assigneeId: "",
     assigneeIds: [],
-    dueDate: "",
+    dueDate: null as string | null,
     priority: "medium" as const,
     progress: 0,
     status: "to-do" as const,
@@ -263,31 +394,56 @@ const addNewTask = async () => {
   const created = await addTask(newTask, String(currentProject.id));
   if (created) {
     setEditingTask(created.id); // ← use real backend id
-    setEditValues({ ...newTask, id: created.id });
+    // Only set the fields that can be edited, not the full task object
+    setEditValues({ 
+      id: created.id,
+      name: created.name || "New Task",
+      projectId: created.projectId || String(currentProject.id),
+      status: created.status || "to-do",
+      priority: created.priority || "medium",
+      progress: created.progress || 0,
+      dueDate: created.dueDate || null,
+      assigneeIds: created.assigneeIds || [],
+      customFields: created.customFields || {},
+    });
+  } else {
+    alert("Failed to create task. Please try again.");
   }
   creatingTaskRef.current = false;
   setCreatingTask(false);
 };
 
 
-  const handleCreateField = (field: CustomField) => {
-    setCustomFields([...customFields, field]);
+  const handleCreateField = async (field: CustomField) => {
+    try {
+      // Save to backend
+      const res = await apiService.createCustomField({
+        name: field.name,
+        field_type: field.type,
+        width: field.width || 150,
+        options: field.options || [],
+      });
 
-    // Add the new column
-    const newColumn: Column = {
-      id: field.id,
-      label: field.name,
-      width: field.width || 150,
-      sortable: true,
-      isCustom: true,
-      fieldType: field.type,
-    };
+      if (res.success && res.data) {
+        const backendField = res.data;
+        const newField: CustomField = {
+          id: backendField.id,
+          name: backendField.name,
+          type: backendField.field_type,
+          width: backendField.width || 150,
+          options: backendField.options || [],
+        };
 
-    // Insert before actions column
-    const newColumns = [...columns];
-    const actionsIndex = newColumns.findIndex((col) => col.id === "actions");
-    newColumns.splice(actionsIndex, 0, newColumn);
-    setColumns(newColumns);
+        // Update custom fields state - this will trigger the useEffect to update columns
+        setCustomFields((prev) => [...prev, newField]);
+      } else {
+        console.error("Failed to create custom field:", res.message);
+        alert("Failed to create custom field. Please try again.");
+      }
+    } catch (err) {
+      console.error("Error creating custom field:", err);
+      alert("Error creating custom field. Please try again.");
+    }
   };
 
   const handleCustomFieldChange = (
@@ -341,19 +497,26 @@ React.useEffect(() => {
 
 console.log(dbUsers,"DB");
 
-  const removeCustomField = (fieldId: string) => {
-    setCustomFields(customFields.filter((field) => field.id !== fieldId));
-    setColumns(columns.filter((col) => col.id !== fieldId));
+  const removeCustomField = async (fieldId: string) => {
+    try {
+      // Delete from backend
+      await apiService.deleteCustomField(fieldId);
 
-    // Remove field data from all tasks
-    tasks.forEach((task) => {
-      const newCustomFields = Object.fromEntries(
-        Object.entries(task.customFields || {}).filter(
-          ([key]) => key !== fieldId,
-        ),
-      );
-      updateTask(task.id, { customFields: newCustomFields });
-    });
+      setCustomFields(customFields.filter((field) => field.id !== fieldId));
+      setColumns(columns.filter((col) => col.id !== fieldId));
+
+      // Remove field data from all tasks
+      for (const task of tasks) {
+        const newCustomFields = Object.fromEntries(
+          Object.entries(task.customFields || {}).filter(
+            ([key]) => key !== fieldId,
+          ),
+        );
+        await updateTask(task.id, { customFields: newCustomFields });
+      }
+    } catch (err) {
+      console.error("Error deleting custom field:", err);
+    }
   };
 
   const handleColumnResize = useCallback(
@@ -620,30 +783,6 @@ console.log(dbUsers,"DB");
                     minWidth: `${columns.reduce((sum, col) => sum + col.width, 0) + (editingTask === task.id ? 100 : 0)}px`,
                   }}
                 >
-                  {/* Save/Cancel buttons at the start when editing */}
-                  {editingTask === task.id && (
-                    <div className="flex items-center gap-1 px-2 border-r border-dashboard-border py-3 flex-shrink-0" style={{ width: 100 }}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-accent hover:text-accent"
-                        onClick={saveEditing}
-                        title="Save"
-                      >
-                        <Check className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-red-400 hover:text-red-300"
-                        onClick={cancelEditing}
-                        title="Cancel"
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  )}
-                  
                   {columns.map((column) => {
                     // Skip actions column if we're editing (we show save/cancel at start)
                     if (column.id === "actions" && editingTask === task.id) {
@@ -656,6 +795,58 @@ console.log(dbUsers,"DB");
                         className="border-r border-dashboard-border last:border-r-0 py-3 flex items-center flex-shrink-0"
                         style={{ width: column.width }}
                       >
+                        {/* Edit/Delete buttons at the start */}
+                        {column.id === "actions-start" && (
+                          <div className="px-2 flex items-center gap-1 w-full justify-center">
+                            {editingTask === task.id ? (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0 text-accent hover:text-accent"
+                                  onClick={saveEditing}
+                                  title="Save"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0 text-red-400 hover:text-red-300"
+                                  onClick={cancelEditing}
+                                  title="Cancel"
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0 text-gray-400 hover:text-accent opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={() => startEditing(task)}
+                                  title="Edit"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={() => {
+                                    setTaskToDelete(task);
+                                    setDeleteDialogOpen(true);
+                                  }}
+                                  title="Delete"
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        
                         {/* Render cell content based on column type */}
                         {column.id === "name" && (
                           <div className="flex items-center gap-2 px-4 w-full">
@@ -667,12 +858,19 @@ console.log(dbUsers,"DB");
                             <div className="flex items-center gap-2 min-w-0 flex-1">
                               {editingTask === task.id ? (
                                 <Input
-                                  value={editValues.name || ""}
+                                  value={editValues.name !== undefined ? editValues.name : task.name || ""}
                                   onChange={(e) =>
                                     updateEditValue("name", e.target.value)
                                   }
                                   className="bg-dashboard-bg border-dashboard-border text-white text-sm h-8 flex-1"
                                   autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      saveEditing();
+                                    } else if (e.key === "Escape") {
+                                      cancelEditing();
+                                    }
+                                  }}
                                 />
                               ) : (
                                 <span
@@ -913,70 +1111,75 @@ console.log(dbUsers,"DB");
                                       Set Due Date
                                     </div>
 
-                                    {/* Quick Date Options */}
-                                    <div className="flex flex-wrap gap-1">
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={() => {
-                                          const today = new Date()
-                                            .toISOString()
-                                            .split("T")[0];
-                                          updateTask(task.id, {
-                                            dueDate: today,
-                                          });
-                                        }}
-                                        className="text-xs h-6 px-2 text-gray-300 hover:text-white hover:bg-dashboard-bg"
-                                      >
-                                        Today
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={() => {
-                                          const tomorrow = new Date();
-                                          tomorrow.setDate(
-                                            tomorrow.getDate() + 1,
-                                          );
-                                          updateTask(task.id, {
-                                            dueDate: tomorrow
+                                    {/* Quick Date Options - Hide for agents */}
+                                    {!isAgent && (
+                                      <div className="flex flex-wrap gap-1">
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => {
+                                            const today = new Date()
                                               .toISOString()
-                                              .split("T")[0],
-                                          });
-                                        }}
-                                        className="text-xs h-6 px-2 text-gray-300 hover:text-white hover:bg-dashboard-bg"
-                                      >
-                                        Tomorrow
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={() => {
-                                          const nextWeek = new Date();
-                                          nextWeek.setDate(
-                                            nextWeek.getDate() + 7,
-                                          );
-                                          updateTask(task.id, {
-                                            dueDate: nextWeek
-                                              .toISOString()
-                                              .split("T")[0],
-                                          });
-                                        }}
-                                        className="text-xs h-6 px-2 text-gray-300 hover:text-white hover:bg-dashboard-bg"
-                                      >
-                                        Next Week
-                                      </Button>
-                                    </div>
+                                              .split("T")[0];
+                                            updateTask(task.id, {
+                                              dueDate: today,
+                                            });
+                                          }}
+                                          className="text-xs h-6 px-2 text-gray-300 hover:text-white hover:bg-dashboard-bg"
+                                        >
+                                          Today
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => {
+                                            const tomorrow = new Date();
+                                            tomorrow.setDate(
+                                              tomorrow.getDate() + 1,
+                                            );
+                                            updateTask(task.id, {
+                                              dueDate: tomorrow
+                                                .toISOString()
+                                                .split("T")[0],
+                                            });
+                                          }}
+                                          className="text-xs h-6 px-2 text-gray-300 hover:text-white hover:bg-dashboard-bg"
+                                        >
+                                          Tomorrow
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => {
+                                            const nextWeek = new Date();
+                                            nextWeek.setDate(
+                                              nextWeek.getDate() + 7,
+                                            );
+                                            updateTask(task.id, {
+                                              dueDate: nextWeek
+                                                .toISOString()
+                                                .split("T")[0],
+                                            });
+                                          }}
+                                          className="text-xs h-6 px-2 text-gray-300 hover:text-white hover:bg-dashboard-bg"
+                                        >
+                                          Next Week
+                                        </Button>
+                                      </div>
+                                    )}
 
                                     <Input
                                       type="date"
                                       value={task.dueDate || ""}
                                       onChange={(e) => {
-                                        updateTask(task.id, {
-                                          dueDate: e.target.value,
-                                        });
+                                        if (!isAgent) {
+                                          updateTask(task.id, {
+                                            dueDate: e.target.value,
+                                          });
+                                        }
                                       }}
-                                      className="bg-dashboard-bg border-dashboard-border text-white text-sm"
+                                      disabled={isAgent}
+                                      className={`bg-dashboard-bg border-dashboard-border text-white text-sm ${isAgent ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     />
 
                                     <div className="flex items-center justify-between">
@@ -1053,6 +1256,60 @@ console.log(dbUsers,"DB");
                                 className={`w-2 h-2 rounded-full ${priorityColors[task.priority]}`}
                               ></div>
                             )}
+                          </div>
+                        )}
+
+                        {column.id === "sprint" && (
+                          <div className="px-4 flex items-center justify-center w-full">
+                            <Select
+                              value={task.sprint ? String(task.sprint) : "none"}
+                              onValueChange={async (value) => {
+                                const sprintId = value === "none" ? null : Number(value);
+                                try {
+                                  console.log("🔄 Updating task sprint:", task.id, "to sprint:", sprintId);
+                                  await updateTask(task.id, { sprint: sprintId } as any);
+                                  console.log("✅ Sprint updated successfully");
+                                  // Refresh tasks to get updated sprint field
+                                  if (currentProject?.id) {
+                                    await refresh(String(currentProject.id));
+                                  }
+                                } catch (error) {
+                                  console.error("❌ Failed to update sprint:", error);
+                                  toast.error("Failed to assign sprint to task");
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="w-full h-8 bg-dashboard-bg border-dashboard-border text-sm">
+                                <SelectValue placeholder="No Sprint" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">
+                                  <span className="text-gray-400">No Sprint</span>
+                                </SelectItem>
+                                {loadingSprints ? (
+                                  <SelectItem value="loading" disabled>
+                                    Loading sprints...
+                                  </SelectItem>
+                                ) : (
+                                  sprints.map((sprint) => (
+                                    <SelectItem key={sprint.id} value={String(sprint.id)}>
+                                      <div className="flex items-center gap-2">
+                                        <Target className="w-3 h-3 text-accent" />
+                                        <span>{sprint.name}</span>
+                                        {sprint.status && (
+                                          <Badge
+                                            variant="outline"
+                                            className="text-xs ml-1"
+                                          >
+                                            {sprint.status}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    </SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
                           </div>
                         )}
 
@@ -1200,8 +1457,47 @@ console.log(dbUsers,"DB");
         onClose={() => setIsFieldCreatorOpen(false)}
         onCreateField={handleCreateField}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent className="bg-dashboard-surface border-dashboard-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-white">Delete Task</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-400">
+              Are you sure you want to delete "{taskToDelete?.name}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-dashboard-border text-gray-400 hover:text-white">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={async () => {
+                if (taskToDelete) {
+                  try {
+                    await deleteTask(taskToDelete.id);
+                    if (currentProject?.id) {
+                      await refresh(String(currentProject.id));
+                    }
+                    setDeleteDialogOpen(false);
+                    setTaskToDelete(null);
+                  } catch (err) {
+                    console.error("Error deleting task:", err);
+                    alert("Failed to delete task. Please try again.");
+                  }
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   );
-}
+});
+
+TaskList.displayName = "TaskList";
 
 export default TaskList;

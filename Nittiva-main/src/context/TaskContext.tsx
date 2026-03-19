@@ -88,11 +88,32 @@ const refresh = useCallback(async (projectId?: string | number) => {
   }
 }, []);
 
+  // ------- Load custom fields from backend -------
+  const refreshCustomFields = useCallback(async () => {
+    try {
+      const res = await apiService.getCustomFields();
+      if (res.success && res.data) {
+        const fields: CustomField[] = res.data.map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          type: f.field_type,
+          width: f.width || 150,
+          options: f.options || [],
+        }));
+        setCustomFields(fields);
+      }
+    } catch (e: any) {
+      console.error("Failed to load custom fields:", e);
+    }
+  }, []);
+
 
   useEffect(() => {
     // Load all tasks initially; pages that are project-scoped can call refresh(projectId)
     refresh().catch(() => undefined);
-  }, []);
+    // Load custom fields from backend
+    refreshCustomFields().catch(() => undefined);
+  }, [refresh, refreshCustomFields]);
 
   // ------- Create -------
   const addTask = async (

@@ -12,11 +12,14 @@ import RecentActivities from "@/components/dashboard/RecentActivities";
 import TeamOverview from "@/components/dashboard/TeamOverview";
 import { Users, FolderOpen, UserCheck, Shield, Clock } from "lucide-react";
 import { useTimeTracker } from "@/context/TimeTrackerContext";
+import { useAuth } from "@/context/AuthContext";
 import { ProjectWelcomeSection } from "@/components/project/ProjectWelcomeSection";
 import { ProjectCreationFlow } from "@/components/project/ProjectCreationFlow";
 import { useProject } from "@/context/ProjectContext";
 import { apiService } from "@/lib/api";
 import { Loader2 } from "lucide-react";
+import AgentsTimeLogView from "@/components/dashboard/AgentsTimeLogView";
+import TimeTracking from "./TimeTracking";
 
 interface DashboardStats {
   overview: {
@@ -65,6 +68,9 @@ interface DashboardStats {
 export default function Index() {
   const { state, formatDuration } = useTimeTracker();
   const { addProject } = useProject();
+  const { user } = useAuth();
+  const isManager = (user as any)?.role === "manager";
+  const isAgent = (user as any)?.role === "agent";
   const [isProjectCreationOpen, setIsProjectCreationOpen] = useState(false);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,6 +105,10 @@ export default function Index() {
     };
 
     fetchDashboardStats();
+    
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchDashboardStats, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -262,6 +272,13 @@ export default function Index() {
         <div className="h-80">
           <TeamOverview teamMembers={dashboardStats?.team.members} loading={loading} />
         </div>
+
+        {/* Manager View: Agents Time Logs */}
+        {isManager && (
+          <div className="mt-8">
+            <AgentsTimeLogView />
+          </div>
+        )}
       </div>
 
       {/* Project Creation Flow */}

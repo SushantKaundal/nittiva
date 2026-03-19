@@ -1,6 +1,9 @@
 import { motion } from "framer-motion";
 import { Activity, Clock, User, Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { apiService } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 
 interface ActivityItem {
   id: string;
@@ -13,28 +16,19 @@ interface ActivityItem {
   avatar: string;
 }
 
-const mockActivities: ActivityItem[] = [
-  {
-    id: "1",
-    user: "olsocials socials",
-    action: "stopped time tracker",
-    target: "",
-    time: "19-06-2025 14:59:36",
-    timeAgo: "A2 minutes ago",
-    type: "stop",
-    avatar: "OS",
-  },
-  {
-    id: "2",
-    user: "olsocials socials",
-    action: "started time tracker",
-    target: "",
-    time: "19-06-2025 14:59:32",
-    timeAgo: "3h ago",
-    type: "start",
-    avatar: "OS",
-  },
-];
+function formatTimeAgo(date: string): string {
+  const now = new Date();
+  const activityDate = new Date(date);
+  const diffMs = now.getTime() - activityDate.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${diffDays}d ago`;
+}
 
 const getActionIcon = (type: string) => {
   switch (type) {
@@ -50,6 +44,45 @@ const getActionIcon = (type: string) => {
 };
 
 export default function RecentActivities() {
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchActivities = async () => {
+      setLoading(true);
+      try {
+        // Fetch recent time logs as activities
+        const response = await apiService.getTimeLogs({});
+        if (response.success && response.data) {
+          const timeLogs = Array.isArray(response.data) ? response.data : (response.data as any)?.results || [];
+          const recentLogs = timeLogs.slice(0, 10).map((log: any, index: number) => {
+            const userName = log.user?.name || log.user?.email || "Unknown";
+            const initials = userName.substring(0, 2).toUpperCase();
+            const action = log.ended_at ? "stopped time tracker" : "started time tracker";
+            const time = log.started_at || log.created_at;
+            
+            return {
+              id: String(log.id || index),
+              user: userName,
+              action,
+              target: log.task?.title || "",
+              time: new Date(time).toLocaleString(),
+              timeAgo: formatTimeAgo(time),
+              type: log.ended_at ? "stop" : "start" as const,
+              avatar: initials,
+            };
+          });
+          setActivities(recentLogs);
+        }
+      } catch (error) {
+        console.error("Failed to fetch activities:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchActivities();
+  }, []);
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -69,7 +102,16 @@ export default function RecentActivities() {
       </div>
 
       <div className="flex-1 p-4 space-y-4 overflow-y-auto">
-        {mockActivities.map((activity, index) => (
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+          </div>
+        ) : activities.length === 0 ? (
+          <div className="text-center py-8 text-gray-400 text-sm">
+            No recent activities
+          </div>
+        ) : (
+          activities.map((activity, index) => (
           <motion.div
             key={activity.id}
             initial={{ opacity: 0, x: -20 }}
@@ -99,7 +141,8 @@ export default function RecentActivities() {
               </div>
             </div>
           </motion.div>
-        ))}
+          ))
+        )}
       </div>
 
       <div className="p-4 border-t border-dashboard-border">

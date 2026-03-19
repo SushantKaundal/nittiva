@@ -27,6 +27,7 @@ import {
   Shield,
   Building2,
   Target,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -36,6 +37,7 @@ import { useTask } from "@/context/TaskContext";
 import { apiService } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,6 +61,7 @@ const sidebarItems = [
     title: "PROJECT MANAGEMENT",
     items: [
       { name: "Tasks", icon: CheckSquare, path: "/dashboard/tasks" },
+      { name: "Progress", icon: TrendingUp, path: "/dashboard/progress" },
       { name: "Timeline", icon: Calendar, path: "/dashboard/timeline" },
       { name: "Sprint", icon: Target, path: "/dashboard/sprint" },
       { name: "Statuses", icon: Tag, path: "/dashboard/statuses" },
@@ -122,9 +125,11 @@ export default function EnhancedSidebar() {
   const { user, logout } = useAuth();
   const { tasks } = useTask();
   const [visibleProjects, setVisibleProjects] = useState<any[]>([]);
+  const [sprintCount, setSprintCount] = useState(0);
 
   const me = useMemo(() => apiService.getCurrentUser(), []);
   const myId = String(me?.id ?? user?.id ?? "");
+  const isAgent = (user as any)?.role === "agent" || (me as any)?.role === "agent";
 
   // Map of projectId -> number of tasks assigned to the current user
   const myProjectTaskCounts = useMemo(() => {
@@ -138,6 +143,24 @@ export default function EnhancedSidebar() {
     return counts;
   }, [tasks, myId]);
 
+  // Load sprint count for agents
+  useEffect(() => {
+    if (isAgent && (user?.id || me?.id)) {
+      const loadSprintCount = async () => {
+        try {
+          const response = await apiService.getSprints();
+          if (response.success && response.data) {
+            const dataArray = Array.isArray(response.data) ? response.data : (response.data.results || []);
+            // Count sprints where agent is a member or has tasks assigned
+            setSprintCount(dataArray.length);
+          }
+        } catch (error) {
+          console.error("Failed to load sprint count:", error);
+        }
+      };
+      loadSprintCount();
+    }
+  }, [isAgent, user?.id, me?.id]);
 
   
   // If admin -> show all projects. Otherwise -> only those with at least one assigned task.
@@ -331,12 +354,15 @@ useEffect(() => {
               <h3 className="text-xs font-normal text-gray-500 uppercase tracking-wider">
                 Projects
               </h3>
-              <button
-                onClick={() => setShowProjectForm(true)}
-                className="text-gray-500 hover:text-accent transition-colors p-1 rounded"
-              >
-                <Plus className="w-3 h-3" />
-              </button>
+              {/* Only show create button for managers, not agents */}
+              {(user as any)?.role !== "agent" && (
+                <button
+                  onClick={() => setShowProjectForm(true)}
+                  className="text-gray-500 hover:text-accent transition-colors p-1 rounded"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+              )}
             </div>
           )}
           {showProjectForm && !isCollapsed && (
@@ -413,25 +439,28 @@ useEffect(() => {
                             <span className="text-xs text-gray-500">
                               {project.taskCount ?? 0}
                             </span>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  className="opacity-0 group-hover:opacity-100 p-1 hover:bg-sidebar-hover rounded transition-all"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <MoreHorizontal className="w-3 h-3" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onClick={() => deleteProject(project.id)}
-                                  className="text-red-400 focus:text-red-300"
-                                >
-                                  <Trash2 className="w-3 h-3 mr-2" />
-                                  Delete Project
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                            {/* Hide delete menu for agents */}
+                            {(user as any)?.role !== "agent" && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-sidebar-hover rounded transition-all"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <MoreHorizontal className="w-3 h-3" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={() => deleteProject(project.id)}
+                                    className="text-red-400 focus:text-red-300"
+                                  >
+                                    <Trash2 className="w-3 h-3 mr-2" />
+                                    Delete Project
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
                           </div>
                         </div>
                       )}
@@ -471,6 +500,9 @@ useEffect(() => {
 
         {/* Other sections (skip ADMIN and DASHBOARD as they're shown separately) */}
         {sidebarItems.filter(s => s.title !== "ADMIN" && s.title !== "DASHBOARD").map((section, idx) => {
+          const userRole = (user as any)?.role || (me as any)?.role || "";
+          const isManager = userRole === "manager";
+          
           return (
             <div key={idx + 1} className="mb-6">
               {!isCollapsed && (
@@ -481,20 +513,38 @@ useEffect(() => {
                 </div>
               )}
               <div className="space-y-1 px-2">
-                {section.items.map((item) => (
-                  <Link
-                    key={item.name}
-                    to={item.path}
-                    className={cn(
-                      "sidebar-item group",
-                      isActive(item.path) && "active",
-                      isCollapsed && "justify-center px-2",
-                    )}
-                  >
-                    <item.icon className="w-5 h-5 flex-shrink-0" />
-                    {!isCollapsed && <span className="truncate">{item.name}</span>}
-                  </Link>
-                ))}
+                {section.items
+                  .filter((item) => {
+                    // Hide Tasks link for managers
+                    if (item.name === "Tasks" && isManager) {
+                      return false;
+                    }
+                    return true;
+                  })
+                  .map((item) => (
+                    <Link
+                      key={item.name}
+                      to={item.path}
+                      className={cn(
+                        "sidebar-item group",
+                        isActive(item.path) && "active",
+                        isCollapsed && "justify-center px-2",
+                      )}
+                    >
+                      <item.icon className="w-5 h-5 flex-shrink-0" />
+                      {!isCollapsed && (
+                        <span className="truncate flex-1">{item.name}</span>
+                      )}
+                      {isAgent && item.name === "Sprint" && sprintCount > 0 && (
+                        <Badge 
+                          variant="default" 
+                          className="ml-auto bg-accent text-black text-xs font-bold min-w-[20px] h-5 flex items-center justify-center px-1.5"
+                        >
+                          {sprintCount}
+                        </Badge>
+                      )}
+                    </Link>
+                  ))}
               </div>
             </div>
           );
@@ -530,7 +580,7 @@ useEffect(() => {
                       </div>
                       {(user as any).company_id && (user as any).role === "manager" && (
                         <div className="text-xs text-accent mt-1 font-mono">
-                          ID: {(user as any).company_id}
+                          Company ID: {(user as any).company_id}
                         </div>
                       )}
                     </div>

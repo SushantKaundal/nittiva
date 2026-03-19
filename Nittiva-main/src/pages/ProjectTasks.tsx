@@ -4,15 +4,18 @@ import { motion } from "framer-motion";
 import { Search, Bell, Globe, User, ArrowLeft, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import TaskList from "@/components/dashboard/TaskList";
+import TaskList, { TaskListRef } from "@/components/dashboard/TaskList";
 import { useProject } from "@/context/ProjectContext";
+import { useTask } from "@/context/TaskContext";
 import { Link } from "react-router-dom";
 import { InviteUserDialog } from "@/components/project/InviteUserDialog";
 
 export default function ProjectTasks() {
   const { projectId } = useParams();
   const { projects, currentProject, selectProject } = useProject();
+  const { addTask } = useTask();
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const taskListRef = React.useRef<TaskListRef>(null);
 
   // Find and set the current project if not already set
   const project = projects.find((p) => p.id === projectId);
@@ -128,6 +131,11 @@ export default function ProjectTasks() {
             <Button
               size="sm"
               className="bg-accent text-black hover:bg-accent/80"
+              onClick={() => {
+                if (taskListRef.current) {
+                  taskListRef.current.addNewTask();
+                }
+              }}
             >
               Add Task
             </Button>
@@ -135,7 +143,7 @@ export default function ProjectTasks() {
         </motion.div>
 
         {/* Task List */}
-        <TaskList />
+        <TaskList ref={taskListRef} />
       </div>
 
       {/* Invite User Dialog */}

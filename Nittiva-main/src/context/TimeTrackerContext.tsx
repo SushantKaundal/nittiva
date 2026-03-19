@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useReducer, useEffect } from "react";
+import React, { createContext, useContext, useReducer, useEffect, useCallback } from "react";
+import { apiService } from "@/lib/api";
+import { useAuth } from "./AuthContext";
 
 export interface TimeEntry {
   id: string;
@@ -150,12 +152,13 @@ const TimeTrackerContext = createContext<{
   state: TimeTrackerState;
   dispatch: React.Dispatch<TimeTrackerAction>;
   startTracking: (taskId: string, description?: string) => void;
-  stopTracking: () => void;
+  stopTracking: () => Promise<void>;
   pauseTracking: () => void;
   resumeTracking: () => void;
   getTaskTotalTime: (taskId: string) => number;
   formatDuration: (milliseconds: number) => string;
   getCurrentDuration: () => number;
+  reloadEntries: () => Promise<void>;
 } | null>(null);
 
 export function TimeTrackerProvider({
@@ -164,28 +167,152 @@ export function TimeTrackerProvider({
   children: React.ReactNode;
 }) {
   const [state, dispatch] = useReducer(timeTrackerReducer, initialState);
+  const { user } = useAuth();
+  const isAgent = (user as any)?.role === "agent";
 
-  // Load saved data on mount
+  // Load saved data from backend on mount (for agents)
   useEffect(() => {
-    const savedEntries = localStorage.getItem("timeTrackerEntries");
-    if (savedEntries) {
-      try {
-        const entries = JSON.parse(savedEntries).map((entry: any) => ({
-          ...entry,
-          startTime: new Date(entry.startTime),
-          endTime: entry.endTime ? new Date(entry.endTime) : undefined,
-        }));
-        dispatch({ type: "LOAD_ENTRIES", payload: entries });
-      } catch (error) {
-        console.error("Failed to load time tracker entries:", error);
+    if (isAgent && user) {
+      const loadTimeLogs = async () => {
+        try {
+          console.log("🔄 Loading time logs from backend on mount...");
+          const response = await apiService.getTimeLogs();
+          console.log("📦 Time logs response:", response);
+          
+          if (response.success && response.data) {
+            // Handle paginated response or direct array
+            let dataArray: any[] = [];
+            if (Array.isArray(response.data)) {
+              dataArray = response.data;
+            } else if (response.data.results && Array.isArray(response.data.results)) {
+              // Paginated response format: {count, next, previous, results: [...]}
+              dataArray = response.data.results;
+            } else if (response.data.data && Array.isArray(response.data.data)) {
+              // Nested data format
+              dataArray = response.data.data;
+            }
+            
+            console.log("📝 Processing", dataArray.length, "time log entries");
+            
+            // Convert backend time logs to TimeEntry format
+            const entries = dataArray.map((log: any) => ({
+              id: log.id,
+              taskId: log.task?.id?.toString() || "general",
+              startTime: new Date(log.started_at),
+              endTime: log.ended_at ? new Date(log.ended_at) : undefined,
+              duration: (log.duration_seconds || 0) * 1000, // Convert to milliseconds
+              description: log.description || "",
+              isActive: !log.ended_at,
+            }));
+            
+            console.log("✅ Loaded", entries.length, "entries into state");
+            dispatch({ type: "LOAD_ENTRIES", payload: entries });
+          } else {
+            console.warn("⚠️ No time logs data in response:", response);
+          }
+        } catch (error) {
+          console.error("❌ Failed to load time logs from backend:", error);
+          // Fallback to localStorage
+          const savedEntries = localStorage.getItem("timeTrackerEntries");
+          if (savedEntries) {
+            try {
+              const entries = JSON.parse(savedEntries).map((entry: any) => ({
+                ...entry,
+                startTime: new Date(entry.startTime),
+                endTime: entry.endTime ? new Date(entry.endTime) : undefined,
+              }));
+              dispatch({ type: "LOAD_ENTRIES", payload: entries });
+            } catch (e) {
+              console.error("Failed to load from localStorage:", e);
+            }
+          }
+        }
+      };
+      
+      loadTimeLogs();
+    } else {
+      // Non-agents: load from localStorage only
+      const savedEntries = localStorage.getItem("timeTrackerEntries");
+      if (savedEntries) {
+        try {
+          const entries = JSON.parse(savedEntries).map((entry: any) => ({
+            ...entry,
+            startTime: new Date(entry.startTime),
+            endTime: entry.endTime ? new Date(entry.endTime) : undefined,
+          }));
+          dispatch({ type: "LOAD_ENTRIES", payload: entries });
+        } catch (error) {
+          console.error("Failed to load time tracker entries:", error);
+        }
       }
     }
-  }, []);
+  }, [isAgent, user]);
 
-  // Save entries to localStorage whenever they change
+  // Define reloadEntries first so it can be used in other effects
+  const reloadEntries = useCallback(async () => {
+    if (isAgent && user) {
+      try {
+        console.log("🔄 Reloading time logs from backend...");
+        const response = await apiService.getTimeLogs();
+        console.log("📦 Time logs response:", response);
+        
+        if (response.success && response.data) {
+          // Handle paginated response or direct array
+          let dataArray: any[] = [];
+          if (Array.isArray(response.data)) {
+            dataArray = response.data;
+          } else if (response.data.results && Array.isArray(response.data.results)) {
+            // Paginated response format: {count, next, previous, results: [...]}
+            dataArray = response.data.results;
+          } else if (response.data.data && Array.isArray(response.data.data)) {
+            // Nested data format
+            dataArray = response.data.data;
+          }
+          
+          console.log("📝 Processing", dataArray.length, "time log entries");
+          
+          const entries = dataArray.map((log: any) => ({
+            id: log.id,
+            taskId: log.task?.id?.toString() || "general",
+            startTime: new Date(log.started_at),
+            endTime: log.ended_at ? new Date(log.ended_at) : undefined,
+            duration: (log.duration_seconds || 0) * 1000,
+            description: log.description || "",
+            isActive: !log.ended_at,
+          }));
+          
+          console.log("✅ Reloaded", entries.length, "entries into state");
+          dispatch({ type: "LOAD_ENTRIES", payload: entries });
+        } else {
+          console.warn("⚠️ No time logs data in response:", response);
+        }
+      } catch (error) {
+        console.error("❌ Failed to reload time logs:", error);
+      }
+    }
+  }, [isAgent, user]);
+
+  // Save entries to localStorage whenever they change (for non-agents)
   useEffect(() => {
-    localStorage.setItem("timeTrackerEntries", JSON.stringify(state.entries));
-  }, [state.entries]);
+    if (!isAgent) {
+      localStorage.setItem("timeTrackerEntries", JSON.stringify(state.entries));
+    }
+  }, [state.entries, isAgent]);
+
+  // Reload data when window regains focus (for agents)
+  useEffect(() => {
+    if (isAgent && user) {
+      const handleFocus = () => {
+        console.log("🔄 Window focused, reloading time logs...");
+        reloadEntries();
+      };
+      
+      window.addEventListener("focus", handleFocus);
+      return () => {
+        window.removeEventListener("focus", handleFocus);
+      };
+    }
+  }, [isAgent, user, reloadEntries]);
 
   // Update active entry duration every second
   useEffect(() => {
@@ -214,7 +341,32 @@ export function TimeTrackerProvider({
     dispatch({ type: "START_TRACKING", payload: { taskId, description } });
   };
 
-  const stopTracking = () => {
+  const stopTracking = async () => {
+    if (!state.activeEntry) return;
+    
+    const endTime = new Date();
+    const duration = endTime.getTime() - state.activeEntry.startTime.getTime();
+    const durationSeconds = Math.floor(duration / 1000);
+    
+    // For agents, save to backend
+    if (isAgent && state.activeEntry.description) {
+      try {
+        const response = await apiService.logWork({
+          description: state.activeEntry.description,
+          duration_seconds: durationSeconds,
+          started_at: state.activeEntry.startTime.toISOString(),
+          ended_at: endTime.toISOString(),
+        });
+        
+        // Reload time logs from backend after successful save
+        if (response.success) {
+          await reloadEntries();
+        }
+      } catch (error) {
+        console.error("Failed to save time log to backend:", error);
+      }
+    }
+    
     dispatch({ type: "STOP_TRACKING" });
   };
 
@@ -264,6 +416,7 @@ export function TimeTrackerProvider({
         getTaskTotalTime,
         formatDuration,
         getCurrentDuration,
+        reloadEntries,
       }}
     >
       {children}

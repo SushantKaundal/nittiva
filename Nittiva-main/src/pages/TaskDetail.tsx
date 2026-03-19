@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useTask } from "@/context/TaskContext";
 import { useUser } from "@/context/UserContext";
+import { useAuth } from "@/context/AuthContext";
 import {
   ArrowLeft,
   Share,
@@ -30,6 +31,7 @@ import {
   Clock,
   CheckCircle2,
 } from "lucide-react";
+import { apiService } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -78,6 +80,8 @@ export default function TaskDetail() {
   const navigate = useNavigate();
   const { tasks, updateTask } = useTask();
   const { users, getUserById } = useUser();
+  const { user } = useAuth();
+  const isAgent = (user as any)?.role === "agent";
 
   const task = tasks.find((t) => t.id === parseInt(taskId || "0"));
   const [newComment, setNewComment] = useState("");
@@ -88,6 +92,8 @@ export default function TaskDetail() {
   const [description, setDescription] = useState("");
   const [startDate, setStartDate] = useState("");
   const [timeEstimate, setTimeEstimate] = useState("");
+  const [sprints, setSprints] = useState<any[]>([]);
+  const [loadingSprints, setLoadingSprints] = useState(false);
 
   useEffect(() => {
     if (task) {
@@ -97,6 +103,23 @@ export default function TaskDetail() {
       setDescription(task.description || "");
     }
   }, [task]);
+
+  const loadSprints = async () => {
+    if (!task?.projectId) return;
+    
+    setLoadingSprints(true);
+    try {
+      const response = await apiService.getSprints({ project: Number(task.projectId) });
+      if (response.success && response.data) {
+        const dataArray = Array.isArray(response.data) ? response.data : (response.data.results || []);
+        setSprints(dataArray);
+      }
+    } catch (error) {
+      console.error("Failed to load sprints:", error);
+    } finally {
+      setLoadingSprints(false);
+    }
+  };
 
   if (!task) {
     return (
@@ -165,6 +188,7 @@ export default function TaskDetail() {
     placeholder = "",
     className = "",
     selectOptions = null,
+    disabled = false,
   }: {
     field: string;
     value: any;
@@ -172,6 +196,7 @@ export default function TaskDetail() {
     placeholder?: string;
     className?: string;
     selectOptions?: { value: string; label: string }[] | null;
+    disabled?: boolean;
   }) => {
     const isEditing = editingField === field;
 
@@ -211,14 +236,16 @@ export default function TaskDetail() {
               ? selectOptions.find((opt) => opt.value === value)?.label
               : "Not set"}
           </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setEditingField(field)}
-            className="w-6 h-6 p-0 text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            <Edit2 className="w-3 h-3" />
-          </Button>
+          {!disabled && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setEditingField(field)}
+              className="w-6 h-6 p-0 text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <Edit2 className="w-3 h-3" />
+            </Button>
+          )}
         </div>
       );
     }
@@ -271,17 +298,19 @@ export default function TaskDetail() {
         <span className={cn("text-sm", value ? "text-white" : "text-gray-500")}>
           {value || placeholder || "Not set"}
         </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            setEditingField(field);
-            setEditValues((prev) => ({ ...prev, [field]: value }));
-          }}
-          className="w-6 h-6 p-0 text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
-        >
-          <Edit2 className="w-3 h-3" />
-        </Button>
+        {!disabled && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setEditingField(field);
+              setEditValues((prev) => ({ ...prev, [field]: value }));
+            }}
+            className="w-6 h-6 p-0 text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <Edit2 className="w-3 h-3" />
+          </Button>
+        )}
       </div>
     );
   };
@@ -559,6 +588,51 @@ export default function TaskDetail() {
               </div>
             </div>
 
+            {/* Sprint */}
+            <div className="flex items-center gap-3 group">
+              <Target className="w-4 h-4 text-gray-400" />
+              <span className="text-sm text-gray-400 w-20">Sprint</span>
+              <Select
+                value={task.sprint ? String(task.sprint) : "none"}
+                onValueChange={async (value) => {
+                  const sprintId = value === "none" ? null : Number(value);
+                  try {
+                    await updateTask(task.id, { sprint: sprintId } as any);
+                  } catch (error) {
+                    console.error("Failed to update sprint:", error);
+                  }
+                }}
+              >
+                <SelectTrigger className="w-64 h-8 bg-dashboard-surface border-dashboard-border text-sm">
+                  <SelectValue placeholder="No Sprint" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">
+                    <span className="text-gray-400">No Sprint</span>
+                  </SelectItem>
+                  {loadingSprints ? (
+                    <SelectItem value="loading" disabled>
+                      Loading sprints...
+                    </SelectItem>
+                  ) : (
+                    sprints.map((sprint) => (
+                      <SelectItem key={sprint.id} value={String(sprint.id)}>
+                        <div className="flex items-center gap-2">
+                          <Target className="w-3 h-3 text-accent" />
+                          <span>{sprint.name}</span>
+                          {sprint.status && (
+                            <Badge variant="outline" className="text-xs ml-1">
+                              {sprint.status}
+                            </Badge>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Dates */}
             <div className="flex items-center gap-3 group">
               <CalendarDays className="w-4 h-4 text-gray-400" />
@@ -582,6 +656,7 @@ export default function TaskDetail() {
                     type="date"
                     placeholder="Due date"
                     className="w-32"
+                    disabled={isAgent}
                   />
                 </div>
               </div>

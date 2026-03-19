@@ -49,7 +49,7 @@ type AgentRegisterFormData = z.infer<typeof agentRegisterSchema>;
 
 export default function Register() {
   const navigate = useNavigate();
-  const { login, isLoading } = useAuth();
+  const { login, register: registerUser, isLoading } = useAuth();
   const [userType, setUserType] = useState<"manager" | "agent">("manager");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -128,7 +128,7 @@ export default function Register() {
   const handleAgentRegister = async (data: AgentRegisterFormData) => {
     try {
       // Agent registration uses existing tenant
-      const response = await apiService.register({
+      const success = await registerUser({
         email: data.username, // Use username as email
         password: data.password,
         password_confirmation: data.password_confirmation,
@@ -141,21 +141,10 @@ export default function Register() {
         role: "agent",
       } as any);
 
-      if (response.success) {
+      if (success) {
         toast.success("Agent account created successfully!");
-        
-        // Auto-login after registration
-        const loginResponse = await login({
-          email: data.username,
-          password: data.password,
-          company_id: data.company_id.toUpperCase(),
-        });
-
-        if (loginResponse.success) {
-          navigate("/dashboard");
-        } else {
-          navigate("/login");
-        }
+        // AuthContext register function already handles tokens and user state
+        navigate("/dashboard");
       } else {
         // Show detailed errors
         const errorMessage = response.message || "Registration failed";

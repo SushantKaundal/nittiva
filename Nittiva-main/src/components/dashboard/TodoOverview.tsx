@@ -2,6 +2,10 @@ import { motion } from "framer-motion";
 import { Plus, List, Eye, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { apiService } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { useTask } from "@/context/TaskContext";
 
 interface Todo {
   id: string;
@@ -10,22 +14,26 @@ interface Todo {
   status: "active" | "completed";
 }
 
-const mockTodos: Todo[] = [
-  {
-    id: "1",
-    title: "WEBSITE",
-    date: "19-06-2025 14:58:31",
-    status: "active",
-  },
-  {
-    id: "2",
-    title: "Web development",
-    date: "19-06-2025 14:59:22",
-    status: "active",
-  },
-];
-
 export default function TodoOverview() {
+  const { tasks } = useTask();
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Convert tasks to todos format
+    const taskTodos: Todo[] = tasks
+      .filter((task) => task.status !== "completed")
+      .slice(0, 10)
+      .map((task) => ({
+        id: String(task.id),
+        title: task.name || "Untitled Task",
+        date: new Date().toLocaleString(),
+        status: task.status === "completed" ? "completed" : "active" as const,
+      }));
+    
+    setTodos(taskTodos);
+    setLoading(false);
+  }, [tasks]);
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -53,7 +61,16 @@ export default function TodoOverview() {
       </div>
 
       <div className="flex-1 p-4 space-y-3 overflow-y-auto">
-        {mockTodos.map((todo, index) => (
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+          </div>
+        ) : todos.length === 0 ? (
+          <div className="text-center py-8 text-gray-400 text-sm">
+            No active todos
+          </div>
+        ) : (
+          todos.map((todo, index) => (
           <motion.div
             key={todo.id}
             initial={{ opacity: 0, x: -20 }}
@@ -98,7 +115,8 @@ export default function TodoOverview() {
               </div>
             </div>
           </motion.div>
-        ))}
+          ))
+        )}
       </div>
     </motion.div>
   );

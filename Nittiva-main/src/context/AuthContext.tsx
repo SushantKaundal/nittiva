@@ -47,9 +47,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.success && response.data) {
         setUser(response.data);
         localStorage.setItem("user", JSON.stringify(response.data));
+        return true;
+      } else {
+        // Profile fetch failed - token might be invalid
+        // Don't clear immediately - let the next request fail naturally
+        console.warn("Profile fetch failed:", response.message);
+        return false;
       }
     } catch (error) {
       console.error("Failed to refresh user data:", error);
+      // Don't throw - let ProtectedRoute handle auth state
+      return false;
     }
   };
 
@@ -66,15 +74,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const storedUser = apiService.getCurrentUser();
           if (storedUser) {
             setUser(storedUser);
-            // silently refresh from server
-            refreshUser().catch(() => {});
+            // silently refresh from server (don't throw on error to prevent loops)
+            refreshUser().then((success) => {
+              if (!success && tokenFromStorage) {
+                // If refresh failed but we have a token, token might be expired
+                // Don't clear immediately - let ProtectedRoute handle it
+                console.warn("Token refresh failed, but keeping auth state for now");
+              }
+            }).catch((err) => {
+              console.warn("Silent refresh error:", err);
+            });
+          } else {
+            // No stored user, try to fetch profile
+            const success = await refreshUser();
+            if (!success && !tokenFromStorage) {
+              // Only clear if we have no token at all
+              apiService.logout();
+              setAccessToken(null);
+              setUser(null);
+            }
           }
         }
       } catch (error) {
         console.error("Auth initialization error:", error);
-        apiService.logout();
-        setAccessToken(null);
-        setUser(null);
+        // Don't clear auth on init error - let user try to use the app
       } finally {
         setIsLoading(false);
       }
@@ -84,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (
     credentials: LoginCredentials,
-  ): Promise<{ success: boolean; user?: User }> => {
+  ): Promise<{ success: boolean; user?: User; message?: string; errors?: any }> => {
     try {
       setIsLoading(true);
 
@@ -92,12 +115,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const loginCredentials: LoginCredentials = {
         email: (credentials as any).username || credentials.email,
         password: credentials.password,
+        company_id: credentials.company_id, // Include company_id for agent login
       };
 
       const response = await apiService.login(loginCredentials);
       if (!response.success || !response.data) {
-        toast.error(response.message || "Login failed");
-        return { success: false };
+        // Show detailed error messages
+        if (response.errors) {
+          Object.values(response.errors).flat().forEach((err: any) => {
+            if (typeof err === 'string') {
+              toast.error(err);
+            } else if (Array.isArray(err)) {
+              err.forEach((e: string) => toast.error(e));
+            }
+          });
+        } else {
+          toast.error(response.message || "Login failed");
+        }
+        return { success: false, message: response.message, errors: response.errors };
       }
 
       // normalize possible shapes

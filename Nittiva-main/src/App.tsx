@@ -38,6 +38,10 @@ import NotFound from "./pages/NotFound";
 import TenantManagement from "./pages/admin/TenantManagement";
 import Timeline from "./pages/Timeline";
 import Sprint from "./pages/Sprint";
+import Progress from "./pages/Progress";
+import AgentTimeLogDetail from "./pages/AgentTimeLogDetail";
+import Statuses from "./pages/Statuses";
+import Priorities from "./pages/Priorities";
 
 import "./App.css";
 
@@ -49,7 +53,7 @@ function App() {
           <UserProvider>                     {/* 3) Users can also depend on auth */}
             <TaskProvider>                   {/* 4) Tasks may depend on currentProject */}
               <BrowserRouter>
-              <Routes>
+                <Routes>
                 {/* Public Routes */}
                 <Route
                   path="/"
@@ -127,14 +131,10 @@ function App() {
                   <Route path="projects/:projectId/board" element={<TaskBoard />} />
                   <Route path="tasks/:taskId" element={<TaskDetail />} />
                   <Route path="tasks" element={<TimeTracking />} />
-                  <Route
-                    path="statuses"
-                    element={<div className="p-6 text-white">Statuses - Coming Soon</div>}
-                  />
-                  <Route
-                    path="priorities"
-                    element={<div className="p-6 text-white">Priorities - Coming Soon</div>}
-                  />
+                  <Route path="progress" element={<Progress />} />
+                  <Route path="agents/:agentId/time-logs" element={<AgentTimeLogDetail />} />
+                  <Route path="statuses" element={<Statuses />} />
+                  <Route path="priorities" element={<Priorities />} />
                   <Route path="timeline" element={<Timeline />} />
                   <Route path="sprint" element={<Sprint />} />
                   <Route
@@ -153,21 +153,21 @@ function App() {
                   <Route path="admin/tenants" element={<TenantManagement />} />
                 </Route>
 
-                {/* Catch all */}
-                <Route path="*" element={<NotFound />} />
-              </Routes>
+                  {/* Catch all */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
 
-              <Toaster
-                theme="dark"
-                position="top-right"
-                toastOptions={{
-                  style: {
-                    background: "rgba(0, 0, 0, 0.8)",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
-                    color: "white",
-                  },
-                }}
-              />
+                <Toaster
+                  theme="dark"
+                  position="top-right"
+                  toastOptions={{
+                    style: {
+                      background: "rgba(0, 0, 0, 0.8)",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      color: "white",
+                    },
+                  }}
+                />
               </BrowserRouter>
             </TaskProvider>
           </UserProvider>

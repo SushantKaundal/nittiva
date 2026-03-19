@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Clock,
@@ -28,13 +28,20 @@ import {
 } from "@/components/ui/select";
 import { useTimeTracker } from "@/context/TimeTrackerContext";
 import { useProject } from "@/context/ProjectContext";
+import { useAuth } from "@/context/AuthContext";
 import { TaskTimeTracker } from "@/components/ui/task-time-tracker";
 import StatsCard from "@/components/dashboard/StatsCard";
+import { apiService } from "@/lib/api";
+import { toast } from "sonner";
+import ManagerAgentListView from "@/components/dashboard/ManagerAgentListView";
 
 export default function TimeTracking() {
-  const { state, formatDuration, startTracking, stopTracking } =
+  const { state, formatDuration, startTracking, stopTracking, reloadEntries } =
     useTimeTracker();
   const { projects } = useProject();
+  const { user } = useAuth();
+  const isAgent = (user as any)?.role === "agent";
+  const isManager = (user as any)?.role === "manager";
   const [selectedPeriod, setSelectedPeriod] = useState("today");
   const [selectedProject, setSelectedProject] = useState("all");
 
@@ -118,9 +125,44 @@ export default function TimeTracking() {
       .slice(0, 5);
   }, [state.entries]);
 
-  const handleQuickStart = (taskName: string) => {
+  const handleQuickStart = async (taskName: string) => {
+    if (!isAgent) {
+      toast.error("Only agents can log work");
+      return;
+    }
+    
+    // Just start the timer - work will be logged when timer stops
     startTracking(`quick-${Date.now()}`, taskName);
+    toast.success("Timer started!");
   };
+
+  // Reload time logs when component mounts
+  useEffect(() => {
+    if (isAgent && user) {
+      // Data is already loaded by TimeTrackerContext on mount
+      // This effect ensures data is refreshed when navigating to this page
+      reloadEntries();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAgent, user]); // Only reload when agent/user changes, not on every reloadEntries change
+
+  // If manager, redirect to progress or show message
+  if (isManager) {
+    return (
+      <div className="h-full bg-dashboard-bg flex items-center justify-center">
+        <p className="text-white text-lg">Managers should use the Progress tab to view agent time logs.</p>
+      </div>
+    );
+  }
+
+  // If not agent, show message
+  if (!isAgent) {
+    return (
+      <div className="h-full bg-dashboard-bg flex items-center justify-center">
+        <p className="text-white text-lg">This page is only available for agents.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full bg-dashboard-bg">
@@ -257,91 +299,93 @@ export default function TimeTracking() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Quick Start & Recent Tasks */}
-          <div className="space-y-6">
-            {/* Quick Start Timer */}
-            <Card className="bg-dashboard-surface border-dashboard-border">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center gap-2">
-                  <Play className="w-5 h-5 text-accent" />
-                  Quick Start
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Input
-                  placeholder="What are you working on?"
-                  className="bg-dashboard-bg border-dashboard-border text-white"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && e.currentTarget.value.trim()) {
-                      handleQuickStart(e.currentTarget.value.trim());
-                      e.currentTarget.value = "";
-                    }
-                  }}
-                />
+          {/* Quick Start - Only shown to agents */}
+          {isAgent && (
+            <div className="space-y-6">
+              {/* Quick Start Timer */}
+              <Card className="bg-dashboard-surface border-dashboard-border">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <Play className="w-5 h-5 text-accent" />
+                    Quick Start
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Input
+                    placeholder="What are you working on?"
+                    className="bg-dashboard-bg border-dashboard-border text-white"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && e.currentTarget.value.trim()) {
+                        handleQuickStart(e.currentTarget.value.trim());
+                        e.currentTarget.value = "";
+                      }
+                    }}
+                  />
 
-                <div className="space-y-2">
-                  <p className="text-sm text-gray-400">Quick Actions:</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      "Meeting",
-                      "Development",
-                      "Research",
-                      "Documentation",
-                    ].map((task) => (
-                      <Button
-                        key={task}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleQuickStart(task)}
-                        className="border-dashboard-border text-gray-300 hover:text-white hover:border-accent"
-                      >
-                        {task}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Top Tasks */}
-            <Card className="bg-dashboard-surface border-dashboard-border">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5 text-accent" />
-                  Top Tasks
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {taskTimeBreakdown.length > 0 ? (
-                  taskTimeBreakdown.map((task, index) => (
-                    <div key={task.taskId} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-300 truncate">
-                          {task.description}
-                        </span>
-                        <span className="text-sm font-mono text-white">
-                          {formatDuration(task.duration)}
-                        </span>
-                      </div>
-                      <Progress
-                        value={
-                          (task.duration / taskTimeBreakdown[0].duration) * 100
-                        }
-                        className="h-2"
-                      />
+                  <div className="space-y-2">
+                    <p className="text-sm text-gray-400">Quick Actions:</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        "Meeting",
+                        "Development",
+                        "Research",
+                        "Documentation",
+                      ].map((task) => (
+                        <Button
+                          key={task}
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleQuickStart(task)}
+                          className="border-dashboard-border text-gray-300 hover:text-white hover:border-accent"
+                        >
+                          {task}
+                        </Button>
+                      ))}
                     </div>
-                  ))
-                ) : (
-                  <p className="text-gray-400 text-sm text-center py-4">
-                    No time tracked yet. Start a timer to see statistics.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Top Tasks */}
+              <Card className="bg-dashboard-surface border-dashboard-border">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5 text-accent" />
+                    Top Tasks
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {taskTimeBreakdown.length > 0 ? (
+                    taskTimeBreakdown.map((task, index) => (
+                      <div key={task.taskId} className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-300 truncate">
+                            {task.description}
+                          </span>
+                          <span className="text-sm font-mono text-white">
+                            {formatDuration(task.duration)}
+                          </span>
+                        </div>
+                        <Progress
+                          value={
+                            (task.duration / taskTimeBreakdown[0].duration) * 100
+                          }
+                          className="h-2"
+                        />
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-gray-400 text-sm text-center py-4">
+                      No time tracked yet. Start a timer to see statistics.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {/* Recent Time Entries */}
-          <div className="lg:col-span-2">
+          <div className={isAgent ? "lg:col-span-2" : "lg:col-span-3"}>
             <Card className="bg-dashboard-surface border-dashboard-border h-full">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
